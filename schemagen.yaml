@@ -1,0 +1,24 @@
+# Database connection string.
+dsn: ""
+
+# Supported drivers: postgres, mysql, mariadb, sqlite
+driver: postgres
+
+# Output directory for generated entities.
+out_dir: ./internal/entity
+
+# Optional include list. Leave empty to inspect all tables.
+tables: []
+
+# Tables to ignore during generation.
+exclude:
+  - schema_migrations
+  - goose_db_version
+  - migrations
+
+# Conflict policy for existing unmanaged files:
+# - skip: leave file as-is and print a warning
+# - error: fail immediately
+# - backup: rename existing file to *.bak.<timestamp>, then write generated file
+# - overwrite: replace existing file
+on_conflict: skip
