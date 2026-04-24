@@ -27,6 +27,7 @@ func TestRootCommandHelpIncludesCompletion(t *testing.T) {
 		"init",
 		"completion",
 		"schemagen init",
+		"--type-strategy",
 	}
 	for _, token := range required {
 		if !strings.Contains(out, token) {
@@ -46,6 +47,20 @@ func TestRootCommandRejectsInvalidConflictPolicy(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "invalid on_conflict") {
 		t.Fatalf("expected invalid conflict policy error, got %v", err)
+	}
+}
+
+func TestRootCommandRejectsInvalidTypeStrategy(t *testing.T) {
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"--dsn", "sqlite::memory:",
+		"--driver", "sqlite",
+		"--type-strategy", "bad",
+	})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid type_strategy") {
+		t.Fatalf("expected invalid type strategy error, got %v", err)
 	}
 }
 

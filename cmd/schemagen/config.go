@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nurularifin27/schemagen/dbtype"
+
 	"gopkg.in/yaml.v3"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -15,19 +17,21 @@ import (
 )
 
 type Config struct {
-	DSN        string   `yaml:"dsn"`
-	Driver     string   `yaml:"driver"`
-	OutDir     string   `yaml:"out_dir"`
-	Tables     []string `yaml:"tables"`
-	Exclude    []string `yaml:"exclude"`
-	OnConflict string   `yaml:"on_conflict"`
+	DSN          string   `yaml:"dsn"`
+	Driver       string   `yaml:"driver"`
+	OutDir       string   `yaml:"out_dir"`
+	Tables       []string `yaml:"tables"`
+	Exclude      []string `yaml:"exclude"`
+	OnConflict   string   `yaml:"on_conflict"`
+	TypeStrategy string   `yaml:"type_strategy"`
 }
 
 const (
-	defaultDriver     = "postgres"
-	defaultConfig     = "schemagen.yaml"
-	defaultOutDir     = "./internal/entity"
-	defaultOnConflict = "skip"
+	defaultDriver       = "postgres"
+	defaultConfig       = "schemagen.yaml"
+	defaultOutDir       = "./internal/entity"
+	defaultOnConflict   = "skip"
+	defaultTypeStrategy = dbtype.StrategyDriver
 )
 
 var defaultExclude = []string{"schema_migrations", "goose_db_version", "migrations"}
@@ -39,6 +43,11 @@ dsn: ""
 
 # Supported drivers: postgres, mysql, mariadb, sqlite
 driver: %s
+
+# Type strategy:
+# - driver: preserve driver-aware types where possible (uuid.UUID, decimal.Decimal, datatypes.Date, datatypes.Time, pgtype arrays)
+# - gorm: prefer simpler GORM-friendly scalar types (string, float64, time.Time) while arrays remain driver-aware
+type_strategy: %s
 
 # Output directory for generated entities.
 out_dir: %s
@@ -58,7 +67,7 @@ exclude:
 # - backup: rename existing file to *.bak.<timestamp>, then write generated file
 # - overwrite: replace existing file
 on_conflict: %s
-`, defaultDriver, defaultOutDir, defaultExclude[0], defaultExclude[1], defaultExclude[2], defaultOnConflict)) + "\n"
+`, defaultDriver, defaultTypeStrategy, defaultOutDir, defaultExclude[0], defaultExclude[1], defaultExclude[2], defaultOnConflict)) + "\n"
 }
 
 func loadConfigIfExists(path string) Config {
@@ -90,13 +99,26 @@ func normalizeConfig(cfg *Config) {
 	if cfg.OnConflict == "" {
 		cfg.OnConflict = defaultOnConflict
 	}
+	if cfg.TypeStrategy == "" {
+		cfg.TypeStrategy = defaultTypeStrategy
+	}
 	cfg.Driver = strings.ToLower(strings.TrimSpace(cfg.Driver))
 	cfg.OnConflict = strings.ToLower(strings.TrimSpace(cfg.OnConflict))
+	cfg.TypeStrategy = strings.ToLower(strings.TrimSpace(cfg.TypeStrategy))
 }
 
 func isValidConflictPolicy(policy string) bool {
 	switch policy {
 	case "skip", "error", "backup", "overwrite":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidTypeStrategy(strategy string) bool {
+	switch strategy {
+	case dbtype.StrategyDriver, dbtype.StrategyGorm:
 		return true
 	default:
 		return false

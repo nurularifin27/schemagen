@@ -4,6 +4,11 @@ dsn: ""
 # Supported drivers: postgres, mysql, mariadb, sqlite
 driver: postgres
 
+# Type strategy:
+# - driver: preserve driver-aware types where possible (uuid.UUID, decimal.Decimal, datatypes.Date, datatypes.Time, pgtype arrays)
+# - gorm: prefer simpler GORM-friendly scalar types (string, float64, time.Time) while arrays remain driver-aware
+type_strategy: driver
+
 # Output directory for generated entities.
 out_dir: ./internal/entity
 

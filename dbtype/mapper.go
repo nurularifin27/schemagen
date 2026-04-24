@@ -9,6 +9,11 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	StrategyDriver = "driver"
+	StrategyGorm   = "gorm"
+)
+
 type Column struct {
 	Name          string
 	DatabaseType  string
@@ -39,11 +44,16 @@ type Field struct {
 }
 
 type Mapper struct {
-	driver string
+	driver   string
+	strategy string
 }
 
-func New(driver string) Mapper {
-	return Mapper{driver: strings.ToLower(driver)}
+func New(driver string, strategy ...string) Mapper {
+	mode := StrategyDriver
+	if len(strategy) > 0 {
+		mode = normalizeStrategy(strategy[0])
+	}
+	return Mapper{driver: strings.ToLower(driver), strategy: mode}
 }
 
 func FromGormColumn(col gorm.ColumnType) Column {
@@ -128,14 +138,35 @@ func (m Mapper) goType(column Column) (string, []string) {
 		return arrayType, imports
 	}
 
+	if m.strategy == StrategyGorm {
+		return m.gormGoType(column)
+	}
+	return m.driverGoType(column)
+}
+
+func (m Mapper) driverGoType(column Column) (string, []string) {
 	switch canonicalType(column) {
 	case "bool":
 		return "bool", nil
+	case "tinyint":
+		if isUnsigned(column) {
+			return "uint8", nil
+		}
+		return "int8", nil
 	case "smallint":
+		if isUnsigned(column) {
+			return "uint16", nil
+		}
 		return "int16", nil
 	case "integer":
+		if isUnsigned(column) {
+			return "uint32", nil
+		}
 		return "int32", nil
 	case "bigint":
+		if isUnsigned(column) {
+			return "uint64", nil
+		}
 		return "int64", nil
 	case "float":
 		if column.DatabaseType == "float4" {
@@ -156,6 +187,52 @@ func (m Mapper) goType(column Column) (string, []string) {
 		return "datatypes.Time", []string{`"gorm.io/datatypes"`}
 	case "datetime":
 		return "time.Time", []string{`"time"`}
+	default:
+		return "string", nil
+	}
+}
+
+func (m Mapper) gormGoType(column Column) (string, []string) {
+	switch canonicalType(column) {
+	case "bool":
+		return "bool", nil
+	case "tinyint":
+		if isUnsigned(column) {
+			return "uint8", nil
+		}
+		return "int8", nil
+	case "smallint":
+		if isUnsigned(column) {
+			return "uint16", nil
+		}
+		return "int16", nil
+	case "integer":
+		if isUnsigned(column) {
+			return "uint32", nil
+		}
+		return "int32", nil
+	case "bigint":
+		if isUnsigned(column) {
+			return "uint64", nil
+		}
+		return "int64", nil
+	case "float":
+		if column.DatabaseType == "float4" {
+			return "float32", nil
+		}
+		return "float64", nil
+	case "decimal":
+		return "float64", nil
+	case "bytes":
+		return "[]byte", nil
+	case "json":
+		return "datatypes.JSON", []string{`"gorm.io/datatypes"`}
+	case "uuid":
+		return "string", nil
+	case "date", "datetime":
+		return "time.Time", []string{`"time"`}
+	case "time":
+		return "string", nil
 	default:
 		return "string", nil
 	}
@@ -216,7 +293,11 @@ func canonicalType(column Column) string {
 		return "bool"
 	case dbType == "bit" && strings.Contains(full, "(1)"):
 		return "bool"
-	case dbType == "smallint", dbType == "int2":
+	case dbType == "tinyint":
+		return "tinyint"
+	case dbType == "bit":
+		return "bytes"
+	case dbType == "smallint", dbType == "int2", dbType == "year":
 		return "smallint"
 	case dbType == "integer", dbType == "int", dbType == "serial", dbType == "int4", dbType == "mediumint":
 		return "integer"
@@ -261,4 +342,19 @@ func sanitizeDefault(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.ReplaceAll(value, ";", "")
 	return value
+}
+
+func normalizeStrategy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", StrategyDriver:
+		return StrategyDriver
+	case StrategyGorm:
+		return StrategyGorm
+	default:
+		return StrategyDriver
+	}
+}
+
+func isUnsigned(column Column) bool {
+	return strings.Contains(strings.ToLower(column.FullType), "unsigned")
 }

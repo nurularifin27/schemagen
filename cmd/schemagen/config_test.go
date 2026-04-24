@@ -20,6 +20,7 @@ func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
 	path := filepath.Join(dir, "schemagen.yaml")
 	content := []byte("dsn: postgres://x\n" +
 		"driver: postgres\n" +
+		"type_strategy: gorm\n" +
 		"out_dir: ./entity\n" +
 		"tables:\n  - users\n" +
 		"exclude:\n  - migrations\n" +
@@ -29,7 +30,7 @@ func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
 	}
 
 	cfg := loadConfigIfExists(path)
-	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.OutDir != "./entity" || cfg.OnConflict != "backup" {
+	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.TypeStrategy != "gorm" || cfg.OutDir != "./entity" || cfg.OnConflict != "backup" {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 	if !reflect.DeepEqual(cfg.Tables, []string{"users"}) {
@@ -47,6 +48,9 @@ func TestNormalizeConfigAppliesDefaults(t *testing.T) {
 	if cfg.Driver != defaultDriver {
 		t.Fatalf("expected driver %q, got %q", defaultDriver, cfg.Driver)
 	}
+	if cfg.TypeStrategy != defaultTypeStrategy {
+		t.Fatalf("expected type strategy %q, got %q", defaultTypeStrategy, cfg.TypeStrategy)
+	}
 	if cfg.OutDir != defaultOutDir {
 		t.Fatalf("expected out dir %q, got %q", defaultOutDir, cfg.OutDir)
 	}
@@ -60,13 +64,17 @@ func TestNormalizeConfigAppliesDefaults(t *testing.T) {
 
 func TestNormalizeConfigNormalizesCase(t *testing.T) {
 	cfg := Config{
-		Driver:     "Postgres",
-		OnConflict: "BACKUP",
+		Driver:       "Postgres",
+		TypeStrategy: "GORM",
+		OnConflict:   "BACKUP",
 	}
 	normalizeConfig(&cfg)
 
 	if cfg.Driver != "postgres" {
 		t.Fatalf("expected normalized driver, got %q", cfg.Driver)
+	}
+	if cfg.TypeStrategy != "gorm" {
+		t.Fatalf("expected normalized type strategy, got %q", cfg.TypeStrategy)
 	}
 	if cfg.OnConflict != "backup" {
 		t.Fatalf("expected normalized on conflict, got %q", cfg.OnConflict)
@@ -75,22 +83,24 @@ func TestNormalizeConfigNormalizesCase(t *testing.T) {
 
 func TestMergeConfigPrefersOverride(t *testing.T) {
 	base := Config{
-		DSN:        "dsn-base",
-		Driver:     "postgres",
-		OutDir:     "./base",
-		Tables:     []string{"users"},
-		Exclude:    []string{"migrations"},
-		OnConflict: "skip",
+		DSN:          "dsn-base",
+		Driver:       "postgres",
+		TypeStrategy: "driver",
+		OutDir:       "./base",
+		Tables:       []string{"users"},
+		Exclude:      []string{"migrations"},
+		OnConflict:   "skip",
 	}
 	override := Config{
-		DSN:        "dsn-override",
-		OutDir:     "./override",
-		Tables:     []string{"companies"},
-		OnConflict: "backup",
+		DSN:          "dsn-override",
+		TypeStrategy: "gorm",
+		OutDir:       "./override",
+		Tables:       []string{"companies"},
+		OnConflict:   "backup",
 	}
 
 	cfg := mergeConfig(base, override)
-	if cfg.DSN != "dsn-override" || cfg.OutDir != "./override" || cfg.Driver != "postgres" || cfg.OnConflict != "backup" {
+	if cfg.DSN != "dsn-override" || cfg.OutDir != "./override" || cfg.Driver != "postgres" || cfg.TypeStrategy != "gorm" || cfg.OnConflict != "backup" {
 		t.Fatalf("unexpected merged config: %#v", cfg)
 	}
 	if !reflect.DeepEqual(cfg.Tables, []string{"companies"}) {
@@ -113,12 +123,25 @@ func TestIsValidConflictPolicy(t *testing.T) {
 	}
 }
 
+func TestIsValidTypeStrategy(t *testing.T) {
+	valid := []string{"driver", "gorm"}
+	for _, strategy := range valid {
+		if !isValidTypeStrategy(strategy) {
+			t.Fatalf("expected strategy %q to be valid", strategy)
+		}
+	}
+	if isValidTypeStrategy("random") {
+		t.Fatal("expected random strategy to be invalid")
+	}
+}
+
 func TestDefaultConfigTemplateIncludesDefaults(t *testing.T) {
 	content := defaultConfigTemplate()
 
 	required := []string{
 		"dsn: \"\"",
 		"driver: postgres",
+		"type_strategy: driver",
 		"out_dir: ./internal/entity",
 		"on_conflict: skip",
 		"schema_migrations",
