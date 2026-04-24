@@ -1,12 +1,11 @@
 # schemagen
 
-Schema-to-Go entity generator with safe regeneration, manual code preservation, and driver-aware type mapping.
+Schema-to-Go entity generator with safe regeneration and manual code preservation.
 
 ## Features
 
 - Generate Go entity structs from database schema
-- Driver-aware type mapping for PostgreSQL, MySQL/MariaDB, and SQLite
-- Configurable type strategy: `driver` or `gorm`
+- Generic scan-type-based field inference
 - Preserve manual code outside managed `SECTION` markers
 - Merge generated imports with manual imports without duplicates
 - Handle unmanaged file conflicts with `skip`, `error`, `backup`, or `overwrite`
@@ -30,12 +29,6 @@ Generate entities from that config:
 
 ```bash
 schemagen generate --config schemagen.yaml
-```
-
-Use the simpler GORM-friendly scalar mapping mode:
-
-```bash
-schemagen generate --config schemagen.yaml --type-strategy gorm
 ```
 
 Root command stays backward compatible, so this also works:
@@ -81,7 +74,6 @@ Default config:
 ```yaml
 dsn: ""
 driver: postgres
-type_strategy: driver
 out_dir: ./internal/entity
 tables: []
 exclude:
@@ -90,13 +82,6 @@ exclude:
   - migrations
 on_conflict: skip
 ```
-
-Type strategies:
-
-- `driver`: preserve driver-aware types where possible. Examples: `uuid.UUID`, `decimal.Decimal`, `datatypes.Date`, `datatypes.Time`, `pgtype` arrays.
-- `gorm`: prefer simpler scalar types that are easier to use across typical GORM projects. Examples: `uuid -> string`, `decimal -> float64`, `date/datetime -> time.Time`, `time -> string`.
-
-Note: PostgreSQL arrays remain driver-aware in both modes because forcing them into generic scalar/slice types is more likely to break scanning.
 
 Conflict policies:
 

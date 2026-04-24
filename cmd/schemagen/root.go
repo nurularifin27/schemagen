@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nurularifin27/schemagen/dbtype"
 	"github.com/nurularifin27/schemagen/entitygen"
 
 	"github.com/spf13/cobra"
@@ -22,7 +21,7 @@ func newRootCmd() *cobra.Command {
   schemagen init
   schemagen generate --config schemagen.yaml
   schemagen --dsn "postgres://user:pass@localhost:5432/app?sslmode=disable" --driver postgres
-  schemagen generate --config schemagen.yaml --type-strategy gorm --tables users,companies --on-conflict=backup
+  schemagen generate --config schemagen.yaml --tables users,companies --on-conflict=backup
   schemagen completion zsh
 		`),
 	}
@@ -63,7 +62,6 @@ func bindGenerateFlags(cmd *cobra.Command, cfg *Config) {
 	flags.String("config", defaultConfig, "Path to YAML config")
 	flags.StringVar(&cfg.DSN, "dsn", "", "Database DSN")
 	flags.StringVar(&cfg.Driver, "driver", "", "Database driver: postgres, mysql, mariadb, sqlite")
-	flags.StringVar(&cfg.TypeStrategy, "type-strategy", "", "Type strategy: driver or gorm")
 	flags.StringVar(&cfg.OutDir, "out-dir", "", "Output directory for generated entities")
 	flags.StringSliceVar(&cfg.Tables, "tables", nil, "Tables to include")
 	flags.StringSliceVar(&cfg.Exclude, "exclude", nil, "Tables to exclude")
@@ -86,14 +84,10 @@ func runGenerate(cmd *cobra.Command, cfg *Config) error {
 	if !isValidConflictPolicy(merged.OnConflict) {
 		return fmt.Errorf("invalid on_conflict %q (supported: skip, error, backup, overwrite)", merged.OnConflict)
 	}
-	if !isValidTypeStrategy(merged.TypeStrategy) {
-		return fmt.Errorf("invalid type_strategy %q (supported: %s, %s)", merged.TypeStrategy, dbtype.StrategyDriver, dbtype.StrategyGorm)
-	}
 
 	db := connectDB(merged.Driver, merged.DSN)
 	return entitygen.Generate(db, entitygen.Options{
 		Driver:        merged.Driver,
-		TypeStrategy:  merged.TypeStrategy,
 		OutDir:        merged.OutDir,
 		Tables:        merged.Tables,
 		ExcludeTables: merged.Exclude,
@@ -147,9 +141,6 @@ func mergeConfig(base, override Config) Config {
 	}
 	if override.Driver != "" {
 		cfg.Driver = override.Driver
-	}
-	if override.TypeStrategy != "" {
-		cfg.TypeStrategy = override.TypeStrategy
 	}
 	if override.OutDir != "" {
 		cfg.OutDir = override.OutDir

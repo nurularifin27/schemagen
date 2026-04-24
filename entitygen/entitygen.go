@@ -21,7 +21,6 @@ import (
 type Options struct {
 	OutDir        string
 	Driver        string
-	TypeStrategy  string
 	Tables        []string
 	ExcludeTables []string
 	OnConflict    string
@@ -69,7 +68,7 @@ func Generate(db *gorm.DB, opts Options) error {
 		return nil
 	}
 
-	mapper := dbtype.New(opts.Driver, opts.TypeStrategy)
+	mapper := dbtype.New(opts.Driver)
 	for _, table := range tableList {
 		if err := syncEntityFile(db, mapper, table, opts); err != nil {
 			return err

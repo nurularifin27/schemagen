@@ -3,15 +3,9 @@ package dbtype
 import (
 	"fmt"
 	"reflect"
-	"regexp"
 	"strings"
 
 	"gorm.io/gorm"
-)
-
-const (
-	StrategyDriver = "driver"
-	StrategyGorm   = "gorm"
 )
 
 type Column struct {
@@ -43,17 +37,10 @@ type Field struct {
 	Imports []string
 }
 
-type Mapper struct {
-	driver   string
-	strategy string
-}
+type Mapper struct{}
 
-func New(driver string, strategy ...string) Mapper {
-	mode := StrategyDriver
-	if len(strategy) > 0 {
-		mode = normalizeStrategy(strategy[0])
-	}
-	return Mapper{driver: strings.ToLower(driver), strategy: mode}
+func New(_ string, _ ...string) Mapper {
+	return Mapper{}
 }
 
 func FromGormColumn(col gorm.ColumnType) Column {
@@ -106,9 +93,6 @@ func (m Mapper) Map(column Column, fieldName string) Field {
 	tags := []string{
 		fmt.Sprintf("column:%s", column.Name),
 	}
-	if column.FullType != "" {
-		tags = append(tags, fmt.Sprintf("type:%s", column.FullType))
-	}
 	if column.PrimaryKey {
 		tags = append(tags, "primaryKey")
 	}
@@ -134,227 +118,125 @@ func (m Mapper) Map(column Column, fieldName string) Field {
 }
 
 func (m Mapper) goType(column Column) (string, []string) {
-	if arrayType, imports, ok := m.arrayType(column); ok {
-		return arrayType, imports
+	if scanType := column.ScanType; scanType != nil {
+		if scanType.Kind() == reflect.Pointer {
+			scanType = scanType.Elem()
+		}
+		if goType, imports, ok := typeFromScanType(scanType); ok {
+			return goType, imports
+		}
 	}
 
-	if m.strategy == StrategyGorm {
-		return m.gormGoType(column)
-	}
-	return m.driverGoType(column)
-}
-
-func (m Mapper) driverGoType(column Column) (string, []string) {
-	switch canonicalType(column) {
-	case "bool":
+	switch strings.ToLower(column.DatabaseType) {
+	case "bool", "boolean":
 		return "bool", nil
 	case "tinyint":
-		if isUnsigned(column) {
-			return "uint8", nil
+		if strings.Contains(column.FullType, "(1)") {
+			return "bool", nil
 		}
 		return "int8", nil
-	case "smallint":
-		if isUnsigned(column) {
-			return "uint16", nil
-		}
+	case "smallint", "int2", "year":
 		return "int16", nil
-	case "integer":
-		if isUnsigned(column) {
-			return "uint32", nil
-		}
+	case "integer", "int", "serial", "int4", "mediumint":
 		return "int32", nil
-	case "bigint":
-		if isUnsigned(column) {
-			return "uint64", nil
-		}
+	case "bigint", "bigserial", "int8":
 		return "int64", nil
-	case "float":
-		if column.DatabaseType == "float4" {
-			return "float32", nil
-		}
+	case "real", "double", "double precision", "float", "float4", "float8", "numeric", "decimal":
 		return "float64", nil
-	case "decimal":
-		return "decimal.Decimal", []string{`"github.com/shopspring/decimal"`}
-	case "bytes":
+	case "bytea", "blob", "binary", "varbinary":
 		return "[]byte", nil
-	case "json":
-		return "datatypes.JSON", []string{`"gorm.io/datatypes"`}
-	case "uuid":
-		return "uuid.UUID", []string{`"github.com/google/uuid"`}
-	case "date":
-		return "datatypes.Date", []string{`"gorm.io/datatypes"`}
-	case "time":
-		return "datatypes.Time", []string{`"gorm.io/datatypes"`}
-	case "datetime":
+	case "date", "datetime", "timestamp", "timestamptz":
 		return "time.Time", []string{`"time"`}
 	default:
 		return "string", nil
 	}
 }
 
-func (m Mapper) gormGoType(column Column) (string, []string) {
-	switch canonicalType(column) {
-	case "bool":
-		return "bool", nil
-	case "tinyint":
-		if isUnsigned(column) {
-			return "uint8", nil
-		}
-		return "int8", nil
-	case "smallint":
-		if isUnsigned(column) {
-			return "uint16", nil
-		}
-		return "int16", nil
-	case "integer":
-		if isUnsigned(column) {
-			return "uint32", nil
-		}
-		return "int32", nil
-	case "bigint":
-		if isUnsigned(column) {
-			return "uint64", nil
-		}
-		return "int64", nil
-	case "float":
-		if column.DatabaseType == "float4" {
-			return "float32", nil
-		}
-		return "float64", nil
-	case "decimal":
-		return "float64", nil
-	case "bytes":
-		return "[]byte", nil
-	case "json":
-		return "datatypes.JSON", []string{`"gorm.io/datatypes"`}
-	case "uuid":
-		return "string", nil
-	case "date", "datetime":
-		return "time.Time", []string{`"time"`}
-	case "time":
-		return "string", nil
-	default:
-		return "string", nil
-	}
-}
-
-func (m Mapper) arrayType(column Column) (string, []string, bool) {
-	full := column.FullType
-	if !strings.Contains(full, "[]") && !strings.HasPrefix(column.DatabaseType, "_") {
+func typeFromScanType(t reflect.Type) (string, []string, bool) {
+	if t == nil {
 		return "", nil, false
 	}
 
-	element := postgresArrayElement(column)
-	switch element {
-	case "uuid":
-		return "pgtype.FlatArray[uuid.UUID]", []string{
-			`"github.com/google/uuid"`,
-			`"github.com/jackc/pgx/v5/pgtype"`,
-		}, true
-	case "bool":
-		return "pgtype.FlatArray[bool]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
-	case "int2":
-		return "pgtype.FlatArray[int16]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
-	case "int4":
-		return "pgtype.FlatArray[int32]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
-	case "int8":
-		return "pgtype.FlatArray[int64]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
-	case "float4":
-		return "pgtype.FlatArray[float32]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
-	case "float8", "numeric":
-		return "pgtype.FlatArray[float64]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
-	default:
-		return "pgtype.FlatArray[string]", []string{`"github.com/jackc/pgx/v5/pgtype"`}, true
+	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
+		return "[]byte", nil, true
 	}
+
+	switch t.Kind() {
+	case reflect.Bool:
+		return "bool", nil, true
+	case reflect.Int, reflect.Int8:
+		return "int8", nil, true
+	case reflect.Int16:
+		return "int16", nil, true
+	case reflect.Int32:
+		return "int32", nil, true
+	case reflect.Int64:
+		return "int64", nil, true
+	case reflect.Uint, reflect.Uint8:
+		return "uint8", nil, true
+	case reflect.Uint16:
+		return "uint16", nil, true
+	case reflect.Uint32:
+		return "uint32", nil, true
+	case reflect.Uint64:
+		return "uint64", nil, true
+	case reflect.Float32:
+		return "float32", nil, true
+	case reflect.Float64:
+		return "float64", nil, true
+	case reflect.String:
+		return "string", nil, true
+	}
+
+	pkg := t.PkgPath()
+	name := t.Name()
+	full := pkg + "." + name
+	switch full {
+	case "time.Time":
+		return "time.Time", []string{`"time"`}, true
+	case "database/sql.NullString":
+		return "string", nil, true
+	case "database/sql.NullBool":
+		return "bool", nil, true
+	case "database/sql.NullByte":
+		return "int8", nil, true
+	case "database/sql.NullInt16":
+		return "int16", nil, true
+	case "database/sql.NullInt32":
+		return "int32", nil, true
+	case "database/sql.NullInt64":
+		return "int64", nil, true
+	case "database/sql.NullFloat64":
+		return "float64", nil, true
+	case "database/sql.NullTime":
+		return "time.Time", []string{`"time"`}, true
+	}
+
+	if name == "UUID" && strings.Contains(pkg, "uuid") {
+		return "string", nil, true
+	}
+	if strings.Contains(strings.ToLower(name), "time") && strings.Contains(pkg, "datatypes") {
+		return "time.Time", []string{`"time"`}, true
+	}
+	if strings.Contains(strings.ToLower(name), "json") && strings.Contains(pkg, "datatypes") {
+		return "[]byte", nil, true
+	}
+
+	return "", nil, false
 }
 
 func (m Mapper) shouldUsePointer(column Column, goType string) bool {
 	if !column.Nullable {
 		return false
 	}
-
-	if strings.HasPrefix(goType, "[]") || strings.HasPrefix(goType, "pgtype.FlatArray[") {
-		return false
-	}
-	if goType == "datatypes.JSON" {
+	if strings.HasPrefix(goType, "[]") {
 		return false
 	}
 	return true
-}
-
-func canonicalType(column Column) string {
-	dbType := strings.ToLower(column.DatabaseType)
-	full := strings.ToLower(column.FullType)
-
-	switch {
-	case dbType == "bool", dbType == "boolean":
-		return "bool"
-	case dbType == "tinyint" && strings.Contains(full, "(1)"):
-		return "bool"
-	case dbType == "bit" && strings.Contains(full, "(1)"):
-		return "bool"
-	case dbType == "tinyint":
-		return "tinyint"
-	case dbType == "bit":
-		return "bytes"
-	case dbType == "smallint", dbType == "int2", dbType == "year":
-		return "smallint"
-	case dbType == "integer", dbType == "int", dbType == "serial", dbType == "int4", dbType == "mediumint":
-		return "integer"
-	case dbType == "bigint", dbType == "bigserial", dbType == "int8":
-		return "bigint"
-	case dbType == "real", dbType == "double", dbType == "double precision", dbType == "float", dbType == "float4", dbType == "float8":
-		return "float"
-	case dbType == "numeric", dbType == "decimal", strings.HasPrefix(full, "numeric"), strings.HasPrefix(full, "decimal"):
-		return "decimal"
-	case dbType == "json", dbType == "jsonb":
-		return "json"
-	case dbType == "uuid":
-		return "uuid"
-	case dbType == "date":
-		return "date"
-	case dbType == "time", dbType == "timetz", strings.HasPrefix(full, "time without time zone"), strings.HasPrefix(full, "time with time zone"):
-		return "time"
-	case dbType == "timestamp", dbType == "timestamptz", dbType == "datetime", strings.HasPrefix(full, "timestamp"), strings.HasPrefix(full, "datetime"):
-		return "datetime"
-	case dbType == "bytea", dbType == "blob", dbType == "binary", dbType == "varbinary":
-		return "bytes"
-	default:
-		return "string"
-	}
-}
-
-func postgresArrayElement(column Column) string {
-	dbType := strings.TrimPrefix(strings.ToLower(column.DatabaseType), "_")
-	if dbType != column.DatabaseType {
-		return dbType
-	}
-
-	full := strings.ToLower(column.FullType)
-	re := regexp.MustCompile(`^([a-z0-9_ ]+)\[\]`)
-	if matches := re.FindStringSubmatch(full); len(matches) == 2 {
-		return strings.TrimSpace(matches[1])
-	}
-	return dbType
 }
 
 func sanitizeDefault(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.ReplaceAll(value, ";", "")
 	return value
-}
-
-func normalizeStrategy(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", StrategyDriver:
-		return StrategyDriver
-	case StrategyGorm:
-		return StrategyGorm
-	default:
-		return StrategyDriver
-	}
-}
-
-func isUnsigned(column Column) bool {
-	return strings.Contains(strings.ToLower(column.FullType), "unsigned")
 }
