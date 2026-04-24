@@ -135,6 +135,25 @@ func TestBuildFieldsUsesMapper(t *testing.T) {
 	}
 }
 
+func TestFieldNameFromColumnDoesNotSingularize(t *testing.T) {
+	tests := map[string]string{
+		"metadata":     "Metadata",
+		"created_at":   "CreatedAt",
+		"user_id":      "UserID",
+		"product_sku":  "ProductSKU",
+		"callback_url": "CallbackURL",
+		"device_uuid":  "DeviceUUID",
+		"raw_json":     "RawJSON",
+	}
+
+	for input, want := range tests {
+		got := fieldNameFromColumn(input)
+		if got != want {
+			t.Fatalf("fieldNameFromColumn(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestGenerateCreatesManagedFile(t *testing.T) {
 	db, err := openSQLiteDB(t)
 	if err != nil {
@@ -172,6 +191,39 @@ func TestGenerateCreatesManagedFile(t *testing.T) {
 		if !strings.Contains(text, token) {
 			t.Fatalf("expected generated file to contain %q, got:\n%s", token, text)
 		}
+	}
+}
+
+func TestGenerateUsesMetadataFieldName(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, metadata text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	err = Generate(db, Options{
+		Driver:     "sqlite",
+		OutDir:     outDir,
+		Tables:     []string{"users"},
+		OnConflict: "skip",
+	})
+	if err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outDir, "user.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "Metadata string") {
+		t.Fatalf("expected Metadata field, got:\n%s", text)
+	}
+	if strings.Contains(text, "Metadatum") {
+		t.Fatalf("expected Metadatum to be absent, got:\n%s", text)
 	}
 }
 
