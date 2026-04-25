@@ -67,6 +67,17 @@ func TestNormalizeRelationsConfigFillsDefaultField(t *testing.T) {
 				ForeignKey:  "user_id",
 				TargetKey:   "id",
 			},
+			{
+				Table:          "users",
+				Kind:           "many_to_many",
+				TargetTable:    "roles",
+				PivotField:     " UserRoles ",
+				JoinTable:      "user_roles",
+				JoinForeignKey: "user_id",
+				JoinTargetKey:  "role_id",
+				SourceKey:      "id",
+				TargetKey:      "id",
+			},
 		},
 	}
 
@@ -76,6 +87,12 @@ func TestNormalizeRelationsConfigFillsDefaultField(t *testing.T) {
 	}
 	if cfg.Relations[1].Field != "OrderItems" {
 		t.Fatalf("expected has_many field OrderItems, got %q", cfg.Relations[1].Field)
+	}
+	if cfg.Relations[2].Field != "Roles" {
+		t.Fatalf("expected many_to_many field Roles, got %q", cfg.Relations[2].Field)
+	}
+	if cfg.Relations[2].PivotField != "UserRoles" {
+		t.Fatalf("expected trimmed pivot field UserRoles, got %q", cfg.Relations[2].PivotField)
 	}
 }
 

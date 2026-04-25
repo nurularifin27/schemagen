@@ -33,3 +33,14 @@ relations: []
 #     join_target_key: role_id
 #     source_key: id
 #     target_key: id
+#
+#   - table: users
+#     kind: many_to_many
+#     target_table: roles
+#     field: Roles
+#     pivot_field: UserRoles
+#     join_table: user_roles
+#     join_foreign_key: user_id
+#     join_target_key: role_id
+#     source_key: id
+#     target_key: id
