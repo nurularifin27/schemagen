@@ -21,6 +21,7 @@ type RelationConfig struct {
 	Table          string `yaml:"table"`
 	Kind           string `yaml:"kind"`
 	Field          string `yaml:"field"`
+	PivotField     string `yaml:"pivot_field"`
 	TargetTable    string `yaml:"target_table"`
 	ForeignKey     string `yaml:"foreign_key"`
 	TargetKey      string `yaml:"target_key"`
@@ -51,6 +52,7 @@ func normalizeRelationsConfig(cfg *RelationsConfig) {
 		cfg.Relations[i].Table = strings.ToLower(strings.TrimSpace(cfg.Relations[i].Table))
 		cfg.Relations[i].Kind = strings.ToLower(strings.TrimSpace(cfg.Relations[i].Kind))
 		cfg.Relations[i].Field = strings.TrimSpace(cfg.Relations[i].Field)
+		cfg.Relations[i].PivotField = strings.TrimSpace(cfg.Relations[i].PivotField)
 		cfg.Relations[i].TargetTable = strings.ToLower(strings.TrimSpace(cfg.Relations[i].TargetTable))
 		cfg.Relations[i].ForeignKey = strings.TrimSpace(cfg.Relations[i].ForeignKey)
 		cfg.Relations[i].TargetKey = strings.TrimSpace(cfg.Relations[i].TargetKey)
@@ -135,6 +137,7 @@ func toEntityRelations(cfg RelationsConfig) []entitygen.Relation {
 			Table:          rel.Table,
 			Kind:           rel.Kind,
 			Field:          rel.Field,
+			PivotField:     rel.PivotField,
 			TargetTable:    rel.TargetTable,
 			ForeignKey:     rel.ForeignKey,
 			TargetKey:      rel.TargetKey,
@@ -175,6 +178,17 @@ relations: []
 #   - table: users
 #     kind: many_to_many
 #     target_table: roles
+#     join_table: user_roles
+#     join_foreign_key: user_id
+#     join_target_key: role_id
+#     source_key: id
+#     target_key: id
+#
+#   - table: users
+#     kind: many_to_many
+#     target_table: roles
+#     field: Roles
+#     pivot_field: UserRoles
 #     join_table: user_roles
 #     join_foreign_key: user_id
 #     join_target_key: role_id

@@ -534,6 +534,88 @@ func TestGenerateMatchesGoldenRelationsGORM(t *testing.T) {
 	assertMatchesGolden(t, filepath.Join(outDir, "order.go"), "testdata/order_relation_gorm.golden")
 }
 
+func TestGenerateMatchesGoldenManyToManyPivotSQLX(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, name text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE roles (id integer primary key autoincrement, name text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE user_roles (id integer primary key autoincrement, user_id integer not null, role_id integer not null, assigned_at datetime null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if _, err := Generate(db, Options{
+		Driver:     "sqlite",
+		Renderer:   RendererSQLX,
+		OutDir:     outDir,
+		Tables:     []string{"users"},
+		OnConflict: "skip",
+		Relations: []Relation{{
+			Table:          "users",
+			Kind:           "many_to_many",
+			Field:          "Roles",
+			PivotField:     "UserRoles",
+			TargetTable:    "roles",
+			JoinTable:      "user_roles",
+			JoinForeignKey: "user_id",
+			JoinTargetKey:  "role_id",
+			SourceKey:      "id",
+			TargetKey:      "id",
+		}},
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "user.go"), "testdata/user_many_to_many_pivot_sqlx.golden")
+}
+
+func TestGenerateMatchesGoldenManyToManyPivotGORM(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, name text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE roles (id integer primary key autoincrement, name text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE user_roles (id integer primary key autoincrement, user_id integer not null, role_id integer not null, assigned_at datetime null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if _, err := Generate(db, Options{
+		Driver:     "sqlite",
+		Renderer:   RendererGORM,
+		OutDir:     outDir,
+		Tables:     []string{"users"},
+		OnConflict: "skip",
+		Relations: []Relation{{
+			Table:          "users",
+			Kind:           "many_to_many",
+			Field:          "Roles",
+			PivotField:     "UserRoles",
+			TargetTable:    "roles",
+			JoinTable:      "user_roles",
+			JoinForeignKey: "user_id",
+			JoinTargetKey:  "role_id",
+			SourceKey:      "id",
+			TargetKey:      "id",
+		}},
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "user.go"), "testdata/user_many_to_many_pivot_gorm.golden")
+}
+
 func assertMatchesGolden(t *testing.T, gotPath, goldenPath string) {
 	t.Helper()
 

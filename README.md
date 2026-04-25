@@ -351,6 +351,17 @@ relations:
     join_target_key: role_id
     source_key: id
     target_key: id
+
+  - table: users
+    kind: many_to_many
+    field: Roles
+    pivot_field: UserRoles
+    target_table: roles
+    join_table: user_roles
+    join_foreign_key: user_id
+    join_target_key: role_id
+    source_key: id
+    target_key: id
 ```
 
 Supported kinds:
@@ -359,6 +370,11 @@ Supported kinds:
 - `has_one`
 - `has_many`
 - `many_to_many`
+
+For `many_to_many`, `pivot_field` is optional. Use it when your join table is a real pivot entity with extra columns and you want both:
+
+- direct access to the target collection, for example `Roles []*Role`
+- explicit access to the pivot rows, for example `UserRoles []*UserRole`
 
 `field` is optional. If it is omitted, schemagen derives a default:
 
@@ -379,6 +395,49 @@ Renderer behavior for relation fields:
 
 - `plain` and `sqlx`: relation fields only get `json:",omitempty"`
 - `gorm`: relation fields get minimal `gorm` relation metadata plus `json:",omitempty"`
+
+Recommended relation patterns:
+
+- Dumb join table:
+  keep a single `many_to_many` relation and skip `pivot_field`
+- Rich pivot table with payload columns:
+  use `many_to_many` plus `pivot_field`, and also define `belongs_to` relations on the pivot table itself
+
+Example rich pivot config:
+
+```yaml
+relations:
+  - table: users
+    kind: many_to_many
+    field: Roles
+    pivot_field: UserRoles
+    target_table: roles
+    join_table: user_roles
+    join_foreign_key: user_id
+    join_target_key: role_id
+    source_key: id
+    target_key: id
+
+  - table: user_roles
+    kind: belongs_to
+    field: User
+    target_table: users
+    foreign_key: user_id
+    target_key: id
+
+  - table: user_roles
+    kind: belongs_to
+    field: Role
+    target_table: roles
+    foreign_key: role_id
+    target_key: id
+```
+
+Result:
+
+- `User.Roles []*Role` gives direct many-to-many navigation
+- `User.UserRoles []*UserRole` exposes pivot rows and payload columns
+- `UserRole.User` and `UserRole.Role` let you traverse the pivot entity explicitly
 
 Relation examples by renderer:
 

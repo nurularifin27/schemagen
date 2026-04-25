@@ -44,6 +44,7 @@ type Relation struct {
 	Table          string
 	Kind           string
 	Field          string
+	PivotField     string
 	TargetTable    string
 	ForeignKey     string
 	TargetKey      string
@@ -584,6 +585,15 @@ func buildRelations(tableName string, relations []Relation) []GeneratedRelation 
 				JSONTag: jsonTag,
 				GORMTag: fmt.Sprintf("many2many:%s;foreignKey:%s;joinForeignKey:%s;references:%s;joinReferences:%s", rel.JoinTable, fieldNameFromColumn(rel.SourceKey), fieldNameFromColumn(rel.JoinForeignKey), fieldNameFromColumn(rel.TargetKey), fieldNameFromColumn(rel.JoinTargetKey)),
 			})
+			if rel.PivotField != "" {
+				pivotStruct := schema.NamingStrategy{}.SchemaName(rel.JoinTable)
+				out = append(out, GeneratedRelation{
+					Field:   rel.PivotField,
+					GoType:  "[]*" + pivotStruct,
+					JSONTag: lowerCamel(rel.PivotField) + ",omitempty",
+					GORMTag: fmt.Sprintf("foreignKey:%s;references:%s", fieldNameFromColumn(rel.JoinForeignKey), fieldNameFromColumn(rel.SourceKey)),
+				})
+			}
 		}
 	}
 	return out
