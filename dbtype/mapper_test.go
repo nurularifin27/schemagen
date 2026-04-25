@@ -100,6 +100,12 @@ func TestDriverSpecificFallbacks(t *testing.T) {
 			expected: "[]byte",
 		},
 		{
+			name:     "mariadb json alias longtext",
+			driver:   "mariadb",
+			column:   Column{DatabaseType: "longtext", FullType: "json"},
+			expected: "[]byte",
+		},
+		{
 			name:     "sqlite integer",
 			driver:   "sqlite",
 			column:   Column{DatabaseType: "integer", FullType: "integer"},

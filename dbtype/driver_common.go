@@ -15,7 +15,7 @@ func (defaultMapper) goType(column Column, opts Options) (string, []string) {
 }
 
 func commonTypeFallback(column Column, opts Options) (string, []string) {
-	switch strings.ToLower(column.DatabaseType) {
+	switch normalizedLogicalType(column) {
 	case "bool", "boolean":
 		return "bool", nil
 	case "tinyint":
@@ -47,11 +47,29 @@ func commonTypeFallback(column Column, opts Options) (string, []string) {
 }
 
 func preferConfiguredType(column Column, opts Options) (string, []string, bool) {
-	switch strings.ToLower(column.DatabaseType) {
+	switch normalizedLogicalType(column) {
 	case "numeric", "decimal", "json", "jsonb":
 		goType, imports := commonTypeFallback(column, opts)
 		return goType, imports, true
 	default:
 		return "", nil, false
+	}
+}
+
+func normalizedLogicalType(column Column) string {
+	databaseType := strings.ToLower(strings.TrimSpace(column.DatabaseType))
+	fullType := strings.ToLower(strings.TrimSpace(column.FullType))
+
+	switch {
+	case databaseType == "json" || databaseType == "jsonb":
+		return databaseType
+	case fullType == "json" || fullType == "jsonb":
+		return fullType
+	case strings.HasPrefix(fullType, "json "):
+		return "json"
+	case strings.HasPrefix(fullType, "jsonb "):
+		return "jsonb"
+	default:
+		return databaseType
 	}
 }
