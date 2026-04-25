@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,20 +92,20 @@ type_overrides: []
 `, defaultDriver, defaultRenderer, defaultOutDir, defaultExclude[0], defaultExclude[1], defaultExclude[2], defaultOnConflict, defaultDecimalStrategy, defaultJSONStrategy, defaultNullableStrategy)) + "\n"
 }
 
-func loadConfigIfExists(path string) Config {
+func loadConfigIfExists(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Config{}
+			return Config{}, nil
 		}
-		log.Fatalf("failed to read config %q: %v", path, err)
+		return Config{}, fmt.Errorf("failed to read config %q: %w", path, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Fatalf("invalid YAML in %q: %v", path, err)
+		return Config{}, fmt.Errorf("invalid YAML in %q: %w", path, err)
 	}
-	return cfg
+	return cfg, nil
 }
 
 func normalizeConfig(cfg *Config) {
@@ -245,7 +244,7 @@ func writeDefaultConfig(path string, force bool) error {
 	return nil
 }
 
-func connectDB(driver, dsn string) *gorm.DB {
+func connectDB(driver, dsn string) (*gorm.DB, error) {
 	var dialector gorm.Dialector
 	switch strings.ToLower(driver) {
 	case "postgres":
@@ -255,12 +254,12 @@ func connectDB(driver, dsn string) *gorm.DB {
 	case "sqlite", "sqlite3":
 		dialector = sqlite.Open(dsn)
 	default:
-		log.Fatalf("unsupported driver %q (supported: postgres, mysql, mariadb, sqlite)", driver)
+		return nil, fmt.Errorf("unsupported driver %q (supported: postgres, mysql, mariadb, sqlite)", driver)
 	}
 
 	db, err := gorm.Open(dialector, &gorm.Config{})
 	if err != nil {
-		log.Fatalf("failed to connect database: %v", err)
+		return nil, fmt.Errorf("failed to connect database: %w", err)
 	}
-	return db
+	return db, nil
 }

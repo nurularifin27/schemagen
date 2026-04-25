@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,20 +30,20 @@ type RelationConfig struct {
 	SourceKey      string `yaml:"source_key"`
 }
 
-func loadRelationsIfExists(path string) RelationsConfig {
+func loadRelationsIfExists(path string) (RelationsConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return RelationsConfig{}
+			return RelationsConfig{}, nil
 		}
-		log.Fatalf("failed to read relations config %q: %v", path, err)
+		return RelationsConfig{}, fmt.Errorf("failed to read relations config %q: %w", path, err)
 	}
 
 	var cfg RelationsConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Fatalf("invalid YAML in %q: %v", path, err)
+		return RelationsConfig{}, fmt.Errorf("invalid YAML in %q: %w", path, err)
 	}
-	return cfg
+	return cfg, nil
 }
 
 func normalizeRelationsConfig(cfg *RelationsConfig) {

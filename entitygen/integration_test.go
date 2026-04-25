@@ -94,7 +94,7 @@ func runIntegrationCase(t *testing.T, db *gorm.DB, tc integrationCase) {
 	})
 
 	outDir := t.TempDir()
-	err := Generate(db, Options{
+	_, err := Generate(db, Options{
 		Driver:          tc.driver,
 		OutDir:          outDir,
 		Tables:          []string{tc.table},

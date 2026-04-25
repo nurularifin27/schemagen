@@ -3,7 +3,6 @@ package entitygen
 import (
 	"fmt"
 	"go/format"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +29,7 @@ type Options struct {
 	NullableStrategy string
 	TypeOverrides    []dbtype.Override
 	Relations        []Relation
+	Logger           Logger
 }
 
 type GeneratedField struct {
@@ -58,6 +58,20 @@ type GeneratedRelation struct {
 	GoType  string
 	JSONTag string
 	GORMTag string
+}
+
+type Logger struct {
+	Infof    func(format string, args ...any)
+	Verbosef func(format string, args ...any)
+	Warnf    func(format string, args ...any)
+}
+
+type Result struct {
+	Generated   int
+	Skipped     int
+	BackedUp    int
+	Overwritten int
+	Tables      int
 }
 
 const (
@@ -111,35 +125,54 @@ func newFileRenderer(name string) fileRenderer {
 	}
 }
 
-func Generate(db *gorm.DB, opts Options) error {
+func Generate(db *gorm.DB, opts Options) (Result, error) {
 	if err := os.MkdirAll(opts.OutDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create output dir %s: %w", opts.OutDir, err)
+		return Result{}, fmt.Errorf("failed to create output dir %s: %w", opts.OutDir, err)
 	}
 
 	tableList, err := resolveTables(db, opts.Tables, opts.ExcludeTables)
 	if err != nil {
-		return fmt.Errorf("failed to resolve tables: %w", err)
+		return Result{}, fmt.Errorf("failed to resolve tables: %w", err)
 	}
 	if len(tableList) == 0 {
-		fmt.Println("no tables selected for generation")
-		return nil
+		if opts.Logger.Infof != nil {
+			opts.Logger.Infof("no tables selected for generation")
+		}
+		return Result{}, nil
 	}
 
+	result := Result{Tables: len(tableList)}
 	mapper := dbtype.New(opts.Driver, opts.DecimalStrategy, opts.JSONStrategy, opts.NullableStrategy, opts.TypeOverrides)
 	renderer := newFileRenderer(opts.Renderer)
 	for _, table := range tableList {
-		if err := syncEntityFile(db, mapper, renderer, table, opts); err != nil {
-			return err
+		if opts.Logger.Verbosef != nil {
+			opts.Logger.Verbosef("processing table %s", table)
+		}
+		status, err := syncEntityFile(db, mapper, renderer, table, opts)
+		if err != nil {
+			return Result{}, err
+		}
+		switch status {
+		case "generated":
+			result.Generated++
+		case "skipped":
+			result.Skipped++
+		case "backup":
+			result.BackedUp++
+			result.Generated++
+		case "overwrite":
+			result.Overwritten++
+			result.Generated++
 		}
 	}
 
-	return nil
+	return result, nil
 }
 
-func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, tableName string, opts Options) error {
+func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, tableName string, opts Options) (string, error) {
 	columnTypes, err := db.Migrator().ColumnTypes(tableName)
 	if err != nil {
-		return fmt.Errorf("failed to read column types for %s: %w", tableName, err)
+		return "", fmt.Errorf("failed to read column types for %s: %w", tableName, err)
 	}
 
 	structName := db.NamingStrategy.SchemaName(tableName)
@@ -162,16 +195,22 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	rendered := renderEntityFile(importBlock, tableNameContent, structName, fieldBlock, relationBlock)
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return writeFormatted(filePath, rendered)
+		if err := writeFormatted(filePath, rendered); err != nil {
+			return "", err
+		}
+		if opts.Logger.Verbosef != nil {
+			opts.Logger.Verbosef("generated %s", filePath)
+		}
+		return "generated", nil
 	}
 
 	raw, err := os.ReadFile(filePath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	content := string(raw)
 	if !isManagedFile(content) {
-		return handleUnmanagedConflict(filePath, rendered, tableName, opts.OnConflict)
+		return handleUnmanagedConflict(filePath, rendered, tableName, opts.OnConflict, opts.Logger)
 	}
 
 	existingImports := extractExistingImports(content)
@@ -214,7 +253,13 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 		)
 	}
 
-	return writeFormatted(filePath, content)
+	if err := writeFormatted(filePath, content); err != nil {
+		return "", err
+	}
+	if opts.Logger.Verbosef != nil {
+		opts.Logger.Verbosef("synced %s", filePath)
+	}
+	return "generated", nil
 }
 
 func renderEntityFile(importBlock, tableNameContent, structName, fieldBlock, relationBlock string) string {
@@ -245,25 +290,31 @@ func isManagedFile(content string) bool {
 		strings.Contains(content, "// [SECTION: BASE: START] - DO NOT REMOVE")
 }
 
-func handleUnmanagedConflict(filePath, rendered, tableName, onConflict string) error {
+func handleUnmanagedConflict(filePath, rendered, tableName, onConflict string, logger Logger) (string, error) {
 	switch onConflict {
 	case "", "skip":
-		log.Printf("skip unmanaged file for table %s: %s", tableName, filePath)
-		return nil
+		if logger.Warnf != nil {
+			logger.Warnf("skip unmanaged file for table %s: %s", tableName, filePath)
+		}
+		return "skipped", nil
 	case "error":
-		return fmt.Errorf("unmanaged file conflict for table %s: %s", tableName, filePath)
+		return "", fmt.Errorf("unmanaged file conflict for table %s: %s", tableName, filePath)
 	case "backup":
 		backupPath := fmt.Sprintf("%s.bak.%s", filePath, time.Now().Format("20060102150405"))
 		if err := os.Rename(filePath, backupPath); err != nil {
-			return fmt.Errorf("failed to backup unmanaged file %s: %w", filePath, err)
+			return "", fmt.Errorf("failed to backup unmanaged file %s: %w", filePath, err)
 		}
-		log.Printf("backed up unmanaged file for table %s: %s -> %s", tableName, filePath, backupPath)
-		return writeFormatted(filePath, rendered)
+		if logger.Warnf != nil {
+			logger.Warnf("backed up unmanaged file for table %s: %s -> %s", tableName, filePath, backupPath)
+		}
+		return "backup", writeFormatted(filePath, rendered)
 	case "overwrite":
-		log.Printf("overwrite unmanaged file for table %s: %s", tableName, filePath)
-		return writeFormatted(filePath, rendered)
+		if logger.Warnf != nil {
+			logger.Warnf("overwrite unmanaged file for table %s: %s", tableName, filePath)
+		}
+		return "overwrite", writeFormatted(filePath, rendered)
 	default:
-		return fmt.Errorf("unsupported on_conflict policy %q", onConflict)
+		return "", fmt.Errorf("unsupported on_conflict policy %q", onConflict)
 	}
 }
 

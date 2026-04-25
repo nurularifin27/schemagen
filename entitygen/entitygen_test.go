@@ -32,7 +32,7 @@ func TestHandleUnmanagedConflictSkip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := handleUnmanagedConflict(path, "package entity\n// new\n", "users", "skip"); err != nil {
+	if _, err := handleUnmanagedConflict(path, "package entity\n// new\n", "users", "skip", Logger{}); err != nil {
 		t.Fatalf("expected skip to succeed, got %v", err)
 	}
 	got, err := os.ReadFile(path)
@@ -51,7 +51,7 @@ func TestHandleUnmanagedConflictError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := handleUnmanagedConflict(path, "package entity\n// new\n", "users", "error")
+	_, err := handleUnmanagedConflict(path, "package entity\n// new\n", "users", "error", Logger{})
 	if err == nil || !strings.Contains(err.Error(), "unmanaged file conflict") {
 		t.Fatalf("expected unmanaged conflict error, got %v", err)
 	}
@@ -66,7 +66,7 @@ func TestHandleUnmanagedConflictBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := handleUnmanagedConflict(path, rendered, "users", "backup"); err != nil {
+	if _, err := handleUnmanagedConflict(path, rendered, "users", "backup", Logger{}); err != nil {
 		t.Fatalf("expected backup to succeed, got %v", err)
 	}
 	got, err := os.ReadFile(path)
@@ -101,7 +101,7 @@ func TestHandleUnmanagedConflictOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := handleUnmanagedConflict(path, rendered, "users", "overwrite"); err != nil {
+	if _, err := handleUnmanagedConflict(path, rendered, "users", "overwrite", Logger{}); err != nil {
 		t.Fatalf("expected overwrite to succeed, got %v", err)
 	}
 	got, err := os.ReadFile(path)
@@ -167,7 +167,7 @@ func TestGenerateCreatesManagedFile(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	err = Generate(db, Options{
+	_, err = Generate(db, Options{
 		Driver:     "sqlite",
 		OutDir:     outDir,
 		Tables:     []string{"users"},
@@ -208,7 +208,7 @@ func TestGenerateUsesMetadataFieldName(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	err = Generate(db, Options{
+	_, err = Generate(db, Options{
 		Driver:     "sqlite",
 		OutDir:     outDir,
 		Tables:     []string{"users"},
@@ -274,7 +274,7 @@ func (u User) Slug() string {
 		t.Fatal(err)
 	}
 
-	err = Generate(db, Options{
+	_, err = Generate(db, Options{
 		Driver:     "sqlite",
 		OutDir:     outDir,
 		Tables:     []string{"users"},
@@ -313,7 +313,7 @@ func TestGenerateAppliesTypeOverrides(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	err = Generate(db, Options{
+	_, err = Generate(db, Options{
 		Driver:     "sqlite",
 		OutDir:     outDir,
 		Tables:     []string{"users"},
@@ -356,7 +356,7 @@ func TestGenerateMatchesGoldenDefault(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:     "sqlite",
 		OutDir:     outDir,
 		Tables:     []string{"users"},
@@ -378,7 +378,7 @@ func TestGenerateMatchesGoldenConfiguredStrategies(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:          "sqlite",
 		OutDir:          outDir,
 		Tables:          []string{"invoices"},
@@ -402,7 +402,7 @@ func TestGenerateMatchesGoldenOverrides(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:     "sqlite",
 		OutDir:     outDir,
 		Tables:     []string{"orders"},
@@ -429,7 +429,7 @@ func TestGenerateMatchesGoldenGORMRenderer(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:     "sqlite",
 		Renderer:   RendererGORM,
 		OutDir:     outDir,
@@ -452,7 +452,7 @@ func TestGenerateMatchesGoldenSQLNullStrategy(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:           "sqlite",
 		Renderer:         RendererSQLX,
 		OutDir:           outDir,
@@ -479,7 +479,7 @@ func TestGenerateMatchesGoldenRelationsSQLX(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:     "sqlite",
 		Renderer:   RendererSQLX,
 		OutDir:     outDir,
@@ -513,7 +513,7 @@ func TestGenerateMatchesGoldenRelationsGORM(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if err := Generate(db, Options{
+	if _, err := Generate(db, Options{
 		Driver:     "sqlite",
 		Renderer:   RendererGORM,
 		OutDir:     outDir,

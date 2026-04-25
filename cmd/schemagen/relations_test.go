@@ -14,7 +14,10 @@ func TestLoadRelationsIfExistsReadsYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := loadRelationsIfExists(path)
+	cfg, err := loadRelationsIfExists(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(cfg.Relations) != 1 || cfg.Relations[0].Field != "User" {
 		t.Fatalf("unexpected relations config: %#v", cfg)
 	}

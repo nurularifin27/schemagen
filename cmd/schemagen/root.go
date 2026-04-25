@@ -44,17 +44,23 @@ func newRootCmd() *cobra.Command {
 
 func newGenerateCmd() *cobra.Command {
 	cfg := Config{}
+	var (
+		verbose bool
+		quiet   bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate Go entities from database schema",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGenerate(cmd, &cfg)
+			return runGenerate(cmd, &cfg, verbose, quiet)
 		},
 	}
 
 	bindGenerateFlags(cmd, &cfg)
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print per-table generation details")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress informational output")
 	return cmd
 }
 
@@ -74,7 +80,7 @@ func bindGenerateFlags(cmd *cobra.Command, cfg *Config) {
 	flags.StringVar(&cfg.NullableStrategy, "nullable-strategy", "", "Nullable mapping strategy: pointer, sqlnull")
 }
 
-func runGenerate(cmd *cobra.Command, cfg *Config) error {
+func runGenerate(cmd *cobra.Command, cfg *Config, verbose, quiet bool) error {
 	configPath, err := cmd.Flags().GetString("config")
 	if err != nil {
 		return err
@@ -84,10 +90,16 @@ func runGenerate(cmd *cobra.Command, cfg *Config) error {
 		return err
 	}
 
-	fileCfg := loadConfigIfExists(configPath)
+	fileCfg, err := loadConfigIfExists(configPath)
+	if err != nil {
+		return err
+	}
 	merged := mergeConfig(fileCfg, *cfg)
 	normalizeConfig(&merged)
-	relationsCfg := loadRelationsIfExists(relationsPath)
+	relationsCfg, err := loadRelationsIfExists(relationsPath)
+	if err != nil {
+		return err
+	}
 	normalizeRelationsConfig(&relationsCfg)
 
 	if merged.DSN == "" {
@@ -116,8 +128,13 @@ func runGenerate(cmd *cobra.Command, cfg *Config) error {
 		return err
 	}
 
-	db := connectDB(merged.Driver, merged.DSN)
-	return entitygen.Generate(db, entitygen.Options{
+	db, err := connectDB(merged.Driver, merged.DSN)
+	if err != nil {
+		return err
+	}
+
+	logger := newLogger(cmd.OutOrStdout(), cmd.ErrOrStderr(), verbose, quiet)
+	result, err := entitygen.Generate(db, entitygen.Options{
 		Driver:           merged.Driver,
 		Renderer:         merged.Renderer,
 		OutDir:           merged.OutDir,
@@ -129,7 +146,22 @@ func runGenerate(cmd *cobra.Command, cfg *Config) error {
 		NullableStrategy: merged.NullableStrategy,
 		TypeOverrides:    toDBTypeOverrides(merged.TypeOverrides),
 		Relations:        toEntityRelations(relationsCfg),
+		Logger:           entitygen.Logger{Infof: logger.Infof, Verbosef: logger.Verbosef, Warnf: logger.Warnf},
 	})
+	if err != nil {
+		return err
+	}
+	logger.Infof(
+		"generated=%d skipped=%d backed_up=%d overwritten=%d tables=%d renderer=%s out_dir=%s",
+		result.Generated,
+		result.Skipped,
+		result.BackedUp,
+		result.Overwritten,
+		result.Tables,
+		merged.Renderer,
+		merged.OutDir,
+	)
+	return nil
 }
 
 func newInitCmd() *cobra.Command {

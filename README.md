@@ -91,6 +91,8 @@ Flags:
 | `--decimal-strategy` | from config | `float64`, `string` | Decimal mapping strategy |
 | `--json-strategy` | from config | `bytes`, `rawmessage` | JSON mapping strategy |
 | `--nullable-strategy` | from config | `pointer`, `sqlnull` | Nullable scalar mapping strategy |
+| `--verbose` | `false` | bool | Print per-table generation details |
+| `--quiet` | `false` | bool | Suppress informational output |
 
 Examples:
 
@@ -118,6 +120,35 @@ schemagen generate \
   --json-strategy rawmessage \
   --nullable-strategy pointer \
   --on-conflict backup
+
+schemagen generate \
+  --config schemagen.yaml \
+  --verbose
+
+schemagen generate \
+  --config schemagen.yaml \
+  --quiet
+```
+
+CLI output behavior:
+
+- `INFO` lines go to normal command output
+- `WARN` lines go to error output
+- `ERROR` lines are returned by the command and printed once by the CLI entrypoint
+- default mode prints high-signal info plus warnings
+- `--verbose` prints per-table progress
+- `--quiet` suppresses informational output
+
+Example default output:
+
+```text
+INFO  generated=12 skipped=1 backed_up=0 overwritten=0 tables=13 renderer=sqlx out_dir=./internal/entity
+```
+
+Example warning output:
+
+```text
+WARN  skip unmanaged file for table users: ./internal/entity/user.go
 ```
 
 ### `schemagen init`

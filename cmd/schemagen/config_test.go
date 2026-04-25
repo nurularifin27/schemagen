@@ -9,7 +9,10 @@ import (
 )
 
 func TestLoadConfigIfExistsMissingFile(t *testing.T) {
-	cfg := loadConfigIfExists(filepath.Join(t.TempDir(), "missing.yaml"))
+	cfg, err := loadConfigIfExists(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Fatalf("expected empty config, got %#v", cfg)
 	}
@@ -33,7 +36,10 @@ func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := loadConfigIfExists(path)
+	cfg, err := loadConfigIfExists(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OutDir != "./entity" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}

@@ -77,6 +77,49 @@ func TestRootCommandRejectsInvalidNullableStrategy(t *testing.T) {
 	}
 }
 
+func TestGenerateCommandPrintsSummary(t *testing.T) {
+	cmd := newRootCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{
+		"generate",
+		"--dsn", "file::memory:?cache=shared",
+		"--driver", "sqlite",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "INFO  no tables selected for generation") {
+		t.Fatalf("expected no tables info, got %q", out)
+	}
+	if !strings.Contains(out, "INFO  generated=0") {
+		t.Fatalf("expected summary info, got %q", out)
+	}
+}
+
+func TestGenerateCommandQuietSuppressesInfo(t *testing.T) {
+	cmd := newRootCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{
+		"generate",
+		"--dsn", "file::memory:?cache=shared",
+		"--driver", "sqlite",
+		"--quiet",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("expected quiet output to be empty, got %q", buf.String())
+	}
+}
+
 func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	cmd := newRootCmd()
 	buf := &bytes.Buffer{}
