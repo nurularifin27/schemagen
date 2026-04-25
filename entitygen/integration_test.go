@@ -120,17 +120,28 @@ func runIntegrationCase(t *testing.T, db *gorm.DB, tc integrationCase) {
 		t.Fatalf("read generated file: %v", err)
 	}
 	text := string(content)
-	required := []string{
-		`"encoding/json"`,
-		`"example.com/project/money"`,
-		"money.Amount",
-		"*json.RawMessage",
-		"CreatedAt",
-	}
+	required := integrationRequiredTokens(tc.driver)
 	for _, token := range required {
 		if !strings.Contains(text, token) {
 			t.Fatalf("%s generated output missing %q:\n%s", tc.driver, token, text)
 		}
+	}
+}
+
+func integrationRequiredTokens(driver string) []string {
+	base := []string{
+		`"example.com/project/money"`,
+		"money.Amount",
+		"CreatedAt",
+	}
+
+	switch driver {
+	case "mariadb":
+		// MariaDB commonly exposes JSON columns as LONGTEXT during schema introspection,
+		// so logical JSON metadata is not reliably available here.
+		return append(base, "*string")
+	default:
+		return append(base, `"encoding/json"`, "*json.RawMessage")
 	}
 }
 
