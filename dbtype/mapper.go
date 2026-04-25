@@ -9,6 +9,7 @@ import (
 )
 
 type Column struct {
+	TableName     string
 	Name          string
 	DatabaseType  string
 	FullType      string
@@ -37,10 +38,82 @@ type Field struct {
 	Imports []string
 }
 
-type Mapper struct{}
+type Options struct {
+	DecimalStrategy  string
+	JSONStrategy     string
+	NullableStrategy string
+	Overrides        []Override
+}
 
-func New(_ string, _ ...string) Mapper {
-	return Mapper{}
+type Override struct {
+	Table   string
+	Column  string
+	DBType  string
+	GoType  string
+	Imports []string
+}
+
+type Mapper interface {
+	Map(column Column, fieldName string) Field
+}
+
+type mapper struct {
+	driver driverMapper
+	opts   Options
+}
+
+type driverMapper interface {
+	goType(column Column, opts Options) (string, []string)
+}
+
+const (
+	DecimalStrategyFloat64  = "float64"
+	DecimalStrategyString   = "string"
+	JSONStrategyBytes       = "bytes"
+	JSONStrategyRawMessage  = "rawmessage"
+	NullableStrategyPointer = "pointer"
+	NullableStrategySQLNull = "sqlnull"
+)
+
+func New(driver string, rawOpts ...any) Mapper {
+	opts := Options{
+		DecimalStrategy:  DecimalStrategyFloat64,
+		JSONStrategy:     JSONStrategyBytes,
+		NullableStrategy: NullableStrategyPointer,
+	}
+	if len(rawOpts) > 0 {
+		if decimal, ok := rawOpts[0].(string); ok && strings.TrimSpace(decimal) != "" {
+			opts.DecimalStrategy = strings.ToLower(strings.TrimSpace(decimal))
+		}
+	}
+	if len(rawOpts) > 1 {
+		if json, ok := rawOpts[1].(string); ok && strings.TrimSpace(json) != "" {
+			opts.JSONStrategy = strings.ToLower(strings.TrimSpace(json))
+		}
+	}
+	if len(rawOpts) > 2 {
+		if nullable, ok := rawOpts[2].(string); ok && strings.TrimSpace(nullable) != "" {
+			opts.NullableStrategy = strings.ToLower(strings.TrimSpace(nullable))
+		}
+	}
+	if len(rawOpts) > 3 {
+		if overrides, ok := rawOpts[3].([]Override); ok {
+			opts.Overrides = overrides
+		}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "postgres":
+		return mapper{driver: postgresMapper{}, opts: opts}
+	case "mysql":
+		return mapper{driver: mysqlMapper{}, opts: opts}
+	case "mariadb":
+		return mapper{driver: mariaDBMapper{}, opts: opts}
+	case "sqlite", "sqlite3":
+		return mapper{driver: sqliteMapper{}, opts: opts}
+	default:
+		return mapper{driver: defaultMapper{}, opts: opts}
+	}
 }
 
 func FromGormColumn(col gorm.ColumnType) Column {
@@ -84,11 +157,31 @@ func FromGormColumn(col gorm.ColumnType) Column {
 	return result
 }
 
-func (m Mapper) Map(column Column, fieldName string) Field {
-	goType, imports := m.goType(column)
-	if m.shouldUsePointer(column, goType) {
+func (m mapper) Map(column Column, fieldName string) Field {
+	if override, ok := matchOverride(column, m.opts.Overrides); ok {
+		goType := override.GoType
+		goType, imports := nullableGoType(column, goType, override.Imports, m.opts)
+		return buildField(column, fieldName, goType, imports)
+	}
+
+	goType, imports := m.driver.goType(column, m.opts)
+	goType, imports = nullableGoType(column, goType, imports, m.opts)
+
+	return buildField(column, fieldName, goType, imports)
+}
+
+func nullableGoType(column Column, goType string, imports []string, opts Options) (string, []string) {
+	if sqlNullType, sqlNullImports, ok := sqlNullTypeFor(column, goType, opts); ok {
+		return sqlNullType, sqlNullImports
+	}
+	if shouldUsePointer(column, goType) {
 		goType = "*" + goType
 	}
+	return goType, imports
+}
+
+func buildField(column Column, fieldName, goType string, imports []string) Field {
+	normalizedImports := normalizeImports(imports)
 
 	tags := []string{
 		fmt.Sprintf("column:%s", column.Name),
@@ -113,42 +206,7 @@ func (m Mapper) Map(column Column, fieldName string) Field {
 		Name:    fieldName,
 		GoType:  goType,
 		Tags:    tags,
-		Imports: imports,
-	}
-}
-
-func (m Mapper) goType(column Column) (string, []string) {
-	if scanType := column.ScanType; scanType != nil {
-		if scanType.Kind() == reflect.Pointer {
-			scanType = scanType.Elem()
-		}
-		if goType, imports, ok := typeFromScanType(scanType); ok {
-			return goType, imports
-		}
-	}
-
-	switch strings.ToLower(column.DatabaseType) {
-	case "bool", "boolean":
-		return "bool", nil
-	case "tinyint":
-		if strings.Contains(column.FullType, "(1)") {
-			return "bool", nil
-		}
-		return "int8", nil
-	case "smallint", "int2", "year":
-		return "int16", nil
-	case "integer", "int", "serial", "int4", "mediumint":
-		return "int32", nil
-	case "bigint", "bigserial", "int8":
-		return "int64", nil
-	case "real", "double", "double precision", "float", "float4", "float8", "numeric", "decimal":
-		return "float64", nil
-	case "bytea", "blob", "binary", "varbinary":
-		return "[]byte", nil
-	case "date", "datetime", "timestamp", "timestamptz":
-		return "time.Time", []string{`"time"`}
-	default:
-		return "string", nil
+		Imports: normalizedImports,
 	}
 }
 
@@ -157,6 +215,9 @@ func typeFromScanType(t reflect.Type) (string, []string, bool) {
 		return "", nil, false
 	}
 
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
 	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
 		return "[]byte", nil, true
 	}
@@ -164,7 +225,9 @@ func typeFromScanType(t reflect.Type) (string, []string, bool) {
 	switch t.Kind() {
 	case reflect.Bool:
 		return "bool", nil, true
-	case reflect.Int, reflect.Int8:
+	case reflect.Int:
+		return "int", nil, true
+	case reflect.Int8:
 		return "int8", nil, true
 	case reflect.Int16:
 		return "int16", nil, true
@@ -172,7 +235,9 @@ func typeFromScanType(t reflect.Type) (string, []string, bool) {
 		return "int32", nil, true
 	case reflect.Int64:
 		return "int64", nil, true
-	case reflect.Uint, reflect.Uint8:
+	case reflect.Uint:
+		return "uint", nil, true
+	case reflect.Uint8:
 		return "uint8", nil, true
 	case reflect.Uint16:
 		return "uint16", nil, true
@@ -225,8 +290,14 @@ func typeFromScanType(t reflect.Type) (string, []string, bool) {
 	return "", nil, false
 }
 
-func (m Mapper) shouldUsePointer(column Column, goType string) bool {
+func shouldUsePointer(column Column, goType string) bool {
+	if strings.ToLower(strings.TrimSpace(goType)) == "interface{}" {
+		return false
+	}
 	if !column.Nullable {
+		return false
+	}
+	if strings.HasPrefix(goType, "*") {
 		return false
 	}
 	if strings.HasPrefix(goType, "[]") {
@@ -239,4 +310,135 @@ func sanitizeDefault(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.ReplaceAll(value, ";", "")
 	return value
+}
+
+func unsignedType(bits int) string {
+	switch bits {
+	case 8:
+		return "uint8"
+	case 16:
+		return "uint16"
+	case 32:
+		return "uint32"
+	case 64:
+		return "uint64"
+	default:
+		return "uint"
+	}
+}
+
+func hasUnsigned(fullType string) bool {
+	return strings.Contains(strings.ToLower(fullType), "unsigned")
+}
+
+func inferByScanType(column Column) (string, []string, bool) {
+	return typeFromScanType(column.ScanType)
+}
+
+func decimalType(opts Options) string {
+	if opts.DecimalStrategy == DecimalStrategyString {
+		return "string"
+	}
+	return "float64"
+}
+
+func jsonType(opts Options) (string, []string) {
+	if opts.JSONStrategy == JSONStrategyRawMessage {
+		return "json.RawMessage", []string{`"encoding/json"`}
+	}
+	return "[]byte", nil
+}
+
+func sqlNullTypeFor(column Column, goType string, opts Options) (string, []string, bool) {
+	if opts.NullableStrategy != NullableStrategySQLNull || !column.Nullable {
+		return "", nil, false
+	}
+	if column.PrimaryKey || column.AutoIncrement {
+		return "", nil, false
+	}
+	switch goType {
+	case "string":
+		return "sql.NullString", []string{`"database/sql"`}, true
+	case "bool":
+		return "sql.NullBool", []string{`"database/sql"`}, true
+	case "int16":
+		return "sql.NullInt16", []string{`"database/sql"`}, true
+	case "int32":
+		return "sql.NullInt32", []string{`"database/sql"`}, true
+	case "int64":
+		return "sql.NullInt64", []string{`"database/sql"`}, true
+	case "float64":
+		return "sql.NullFloat64", []string{`"database/sql"`}, true
+	case "time.Time":
+		return "sql.NullTime", []string{`"database/sql"`}, true
+	default:
+		return "", nil, false
+	}
+}
+
+func matchOverride(column Column, overrides []Override) (Override, bool) {
+	bestScore := -1
+	var best Override
+	for _, override := range overrides {
+		score, ok := overrideMatchScore(column, override)
+		if !ok {
+			continue
+		}
+		if score > bestScore {
+			bestScore = score
+			best = override
+		}
+	}
+	return best, bestScore >= 0
+}
+
+func overrideMatchScore(column Column, override Override) (int, bool) {
+	if strings.TrimSpace(override.GoType) == "" {
+		return 0, false
+	}
+
+	score := 0
+	if override.Table != "" {
+		if !strings.EqualFold(strings.TrimSpace(override.Table), column.TableName) {
+			return 0, false
+		}
+		score += 4
+	}
+	if override.Column != "" {
+		if !strings.EqualFold(strings.TrimSpace(override.Column), column.Name) {
+			return 0, false
+		}
+		score += 2
+	}
+	if override.DBType != "" {
+		if !strings.EqualFold(strings.TrimSpace(override.DBType), column.DatabaseType) {
+			return 0, false
+		}
+		score++
+	}
+	return score, score > 0
+}
+
+func normalizeImports(imports []string) []string {
+	if len(imports) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(imports))
+	normalized := make([]string, 0, len(imports))
+	for _, imp := range imports {
+		imp = strings.TrimSpace(imp)
+		if imp == "" {
+			continue
+		}
+		if !strings.HasPrefix(imp, `"`) {
+			imp = `"` + imp + `"`
+		}
+		if seen[imp] {
+			continue
+		}
+		seen[imp] = true
+		normalized = append(normalized, imp)
+	}
+	return normalized
 }

@@ -49,6 +49,34 @@ func TestRootCommandRejectsInvalidConflictPolicy(t *testing.T) {
 	}
 }
 
+func TestRootCommandRejectsInvalidRenderer(t *testing.T) {
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"--dsn", "sqlite::memory:",
+		"--driver", "sqlite",
+		"--renderer", "ent",
+	})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid renderer") {
+		t.Fatalf("expected invalid renderer error, got %v", err)
+	}
+}
+
+func TestRootCommandRejectsInvalidNullableStrategy(t *testing.T) {
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"--dsn", "sqlite::memory:",
+		"--driver", "sqlite",
+		"--nullable-strategy", "ptr",
+	})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid nullable_strategy") {
+		t.Fatalf("expected invalid nullable strategy error, got %v", err)
+	}
+}
+
 func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	cmd := newRootCmd()
 	buf := &bytes.Buffer{}
@@ -56,7 +84,8 @@ func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	cmd.SetErr(buf)
 
 	path := filepath.Join(t.TempDir(), "schemagen.yaml")
-	cmd.SetArgs([]string{"init", "--path", path})
+	relationsPath := filepath.Join(filepath.Dir(path), "schemagen.relations.yaml")
+	cmd.SetArgs([]string{"init", "--path", path, "--relations-path", relationsPath})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected init to succeed, got %v", err)
@@ -69,8 +98,18 @@ func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	if string(data) != defaultConfigTemplate() {
 		t.Fatalf("unexpected config content:\n%s", string(data))
 	}
+	relationsData, err := os.ReadFile(relationsPath)
+	if err != nil {
+		t.Fatalf("expected relations config file to exist: %v", err)
+	}
+	if string(relationsData) != defaultRelationsTemplate() {
+		t.Fatalf("unexpected relations config content:\n%s", string(relationsData))
+	}
 	if !strings.Contains(buf.String(), "wrote "+path) {
 		t.Fatalf("expected output to mention path, got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "wrote "+relationsPath) {
+		t.Fatalf("expected output to mention relations path, got %q", buf.String())
 	}
 }
 

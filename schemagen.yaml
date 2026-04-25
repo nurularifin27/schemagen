@@ -4,6 +4,9 @@ dsn: ""
 # Supported drivers: postgres, mysql, mariadb, sqlite
 driver: postgres
 
+# Output renderer: plain, sqlx, gorm
+renderer: sqlx
+
 # Output directory for generated entities.
 out_dir: ./internal/entity
 
@@ -22,3 +25,15 @@ exclude:
 # - backup: rename existing file to *.bak.<timestamp>, then write generated file
 # - overwrite: replace existing file
 on_conflict: skip
+
+# Decimal mapping strategy: float64, string
+decimal_strategy: string
+
+# JSON mapping strategy: bytes, rawmessage
+json_strategy: rawmessage
+
+# Nullable mapping strategy: pointer, sqlnull
+nullable_strategy: pointer
+
+# Optional explicit type overrides.
+type_overrides: []

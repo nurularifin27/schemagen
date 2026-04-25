@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: schemagen
+          POSTGRES_USER: schemagen
+          POSTGRES_PASSWORD: schemagen
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U schemagen -d schemagen"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: schemagen
+          MYSQL_USER: schemagen
+          MYSQL_PASSWORD: schemagen
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_DATABASE: schemagen
+          MARIADB_USER: schemagen
+          MARIADB_PASSWORD: schemagen
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run tests
+        env:
+          SCHEMAGEN_TEST_POSTGRES_DSN: postgres://schemagen:schemagen@127.0.0.1:5432/schemagen?sslmode=disable
+          SCHEMAGEN_TEST_MYSQL_DSN: schemagen:schemagen@tcp(127.0.0.1:3306)/schemagen?parseTime=true
+          SCHEMAGEN_TEST_MARIADB_DSN: schemagen:schemagen@tcp(127.0.0.1:3307)/schemagen?parseTime=true
+        run: go test ./cmd/schemagen ./dbtype ./entitygen

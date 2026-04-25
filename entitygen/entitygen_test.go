@@ -126,9 +126,12 @@ func TestBuildFieldsUsesMapper(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fields, imports := buildFields(columnTypes, dbtype.New("sqlite"))
+	fields, imports := buildFields("users", columnTypes, dbtype.New("sqlite"))
 	if len(fields) != 3 {
 		t.Fatalf("expected 3 fields, got %d", len(fields))
+	}
+	if fields[0].ColumnName != "id" {
+		t.Fatalf("expected first field to carry column name, got %#v", fields[0])
 	}
 	if len(imports) == 0 {
 		t.Fatal("expected generated imports for datetime field")
@@ -185,6 +188,7 @@ func TestGenerateCreatesManagedFile(t *testing.T) {
 		"Manual code is allowed outside managed SECTION markers.",
 		"const TableNameUser = \"users\"",
 		"type User struct {",
+		"`db:\"created_at\" json:\"created_at\"`",
 		"CreatedAt *time.Time",
 	}
 	for _, token := range required {
@@ -221,6 +225,9 @@ func TestGenerateUsesMetadataFieldName(t *testing.T) {
 	text := string(content)
 	if !strings.Contains(text, "Metadata string") {
 		t.Fatalf("expected Metadata field, got:\n%s", text)
+	}
+	if !strings.Contains(text, "`db:\"metadata\" json:\"metadata\"`") {
+		t.Fatalf("expected sqlx tags, got:\n%s", text)
 	}
 	if strings.Contains(text, "Metadatum") {
 		t.Fatalf("expected Metadatum to be absent, got:\n%s", text)
@@ -288,8 +295,258 @@ func (u User) Slug() string {
 	if strings.Count(text, "\"time\"") != 1 {
 		t.Fatalf("expected time import exactly once, got:\n%s", text)
 	}
+	if !strings.Contains(text, "`db:\"created_at\" json:\"created_at\"`") {
+		t.Fatalf("expected sqlx tag after regeneration, got:\n%s", text)
+	}
 	if !strings.Contains(text, "func (u User) Slug() string") {
 		t.Fatalf("expected manual method to remain, got:\n%s", text)
+	}
+}
+
+func TestGenerateAppliesTypeOverrides(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, amount decimal not null, payload json)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	err = Generate(db, Options{
+		Driver:     "sqlite",
+		OutDir:     outDir,
+		Tables:     []string{"users"},
+		OnConflict: "skip",
+		TypeOverrides: []dbtype.Override{
+			{DBType: "decimal", GoType: "money.Amount", Imports: []string{"example.com/money"}},
+			{Table: "users", Column: "payload", GoType: "json.RawMessage", Imports: []string{"encoding/json"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outDir, "user.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	required := []string{
+		`"encoding/json"`,
+		`"example.com/money"`,
+		"money.Amount",
+		"*json.RawMessage",
+		"`db:\"amount\" json:\"amount\"`",
+	}
+	for _, token := range required {
+		if !strings.Contains(text, token) {
+			t.Fatalf("expected generated file to contain %q, got:\n%s", token, text)
+		}
+	}
+}
+
+func TestGenerateMatchesGoldenDefault(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, name text not null, created_at datetime, metadata json)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:     "sqlite",
+		OutDir:     outDir,
+		Tables:     []string{"users"},
+		OnConflict: "skip",
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "user.go"), "testdata/user_default.golden")
+}
+
+func TestGenerateMatchesGoldenConfiguredStrategies(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE invoices (id integer primary key autoincrement, total decimal not null, payload json, issued_at datetime not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:          "sqlite",
+		OutDir:          outDir,
+		Tables:          []string{"invoices"},
+		OnConflict:      "skip",
+		DecimalStrategy: "string",
+		JSONStrategy:    "rawmessage",
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "invoice.go"), "testdata/invoice_strategies.golden")
+}
+
+func TestGenerateMatchesGoldenOverrides(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE orders (id integer primary key autoincrement, amount decimal not null, payload json, external_id uuid)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:     "sqlite",
+		OutDir:     outDir,
+		Tables:     []string{"orders"},
+		OnConflict: "skip",
+		TypeOverrides: []dbtype.Override{
+			{DBType: "decimal", GoType: "money.Amount", Imports: []string{"example.com/project/money"}},
+			{Table: "orders", Column: "payload", GoType: "json.RawMessage", Imports: []string{"encoding/json"}},
+			{Column: "external_id", GoType: "uuid.UUID", Imports: []string{"github.com/google/uuid"}},
+		},
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "order.go"), "testdata/order_overrides.golden")
+}
+
+func TestGenerateMatchesGoldenGORMRenderer(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE accounts (id integer primary key autoincrement, email text not null, created_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:     "sqlite",
+		Renderer:   RendererGORM,
+		OutDir:     outDir,
+		Tables:     []string{"accounts"},
+		OnConflict: "skip",
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "account.go"), "testdata/account_gorm.golden")
+}
+
+func TestGenerateMatchesGoldenSQLNullStrategy(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE events (id integer primary key autoincrement, name text, occurred_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:           "sqlite",
+		Renderer:         RendererSQLX,
+		OutDir:           outDir,
+		Tables:           []string{"events"},
+		OnConflict:       "skip",
+		NullableStrategy: "sqlnull",
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "event.go"), "testdata/event_sqlnull.golden")
+}
+
+func TestGenerateMatchesGoldenRelationsSQLX(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, name text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE orders (id integer primary key autoincrement, user_id integer not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:     "sqlite",
+		Renderer:   RendererSQLX,
+		OutDir:     outDir,
+		Tables:     []string{"orders"},
+		OnConflict: "skip",
+		Relations: []Relation{{
+			Table:       "orders",
+			Kind:        "belongs_to",
+			Field:       "User",
+			TargetTable: "users",
+			ForeignKey:  "user_id",
+			TargetKey:   "id",
+		}},
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "order.go"), "testdata/order_relation_sqlx.golden")
+}
+
+func TestGenerateMatchesGoldenRelationsGORM(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, name text not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE orders (id integer primary key autoincrement, user_id integer not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if err := Generate(db, Options{
+		Driver:     "sqlite",
+		Renderer:   RendererGORM,
+		OutDir:     outDir,
+		Tables:     []string{"orders"},
+		OnConflict: "skip",
+		Relations: []Relation{{
+			Table:       "orders",
+			Kind:        "belongs_to",
+			Field:       "User",
+			TargetTable: "users",
+			ForeignKey:  "user_id",
+			TargetKey:   "id",
+		}},
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "order.go"), "testdata/order_relation_gorm.golden")
+}
+
+func assertMatchesGolden(t *testing.T, gotPath, goldenPath string) {
+	t.Helper()
+
+	got, err := os.ReadFile(gotPath)
+	if err != nil {
+		t.Fatalf("read generated file: %v", err)
+	}
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden file: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("generated output mismatch for %s\nwant:\n%s\ngot:\n%s", gotPath, string(want), string(got))
 	}
 }
 
