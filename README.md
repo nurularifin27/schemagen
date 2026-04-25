@@ -340,35 +340,48 @@ Use a separate `schemagen.relations.yaml` file to keep relation mapping out of t
 Example:
 
 ```yaml
+tables:
+  orders:
+    relations:
+      - kind: belongs_to
+        target_table: users
+        foreign_key: user_id
+        target_key: id
+
+  users:
+    relations:
+      - kind: has_many
+        field: Orders
+        target_table: orders
+        foreign_key: user_id
+        target_key: id
+
+      - kind: has_one
+        field: Profile
+        target_table: user_profiles
+        foreign_key: user_id
+        target_key: id
+
+      - kind: many_to_many
+        field: Roles
+        target_table: roles
+        join_table: user_roles
+        join_foreign_key: user_id
+        join_target_key: role_id
+        source_key: id
+        target_key: id
+```
+
+The grouped `tables.<table>.relations` format is the recommended form.
+
+Legacy flat format is still supported:
+
+```yaml
 relations:
   - table: orders
     kind: belongs_to
     target_table: users
     foreign_key: user_id
-    target_key: id
-
-  - table: users
-    kind: has_many
-    field: Orders
-    target_table: orders
-    foreign_key: user_id
-    target_key: id
-
-  - table: users
-    kind: has_one
-    field: Profile
-    target_table: user_profiles
-    foreign_key: user_id
-    target_key: id
-
-  - table: users
-    kind: many_to_many
-    field: Roles
-    target_table: roles
-    join_table: user_roles
-    join_foreign_key: user_id
-    join_target_key: role_id
-    source_key: id
     target_key: id
 ```
 
@@ -402,16 +415,17 @@ Renderer behavior for relation fields:
 Recommended relation patterns:
 
 ```yaml
-relations:
-  - table: users
-    kind: many_to_many
-    field: Roles
-    target_table: roles
-    join_table: user_roles
-    join_foreign_key: user_id
-    join_target_key: role_id
-    source_key: id
-    target_key: id
+tables:
+  users:
+    relations:
+      - kind: many_to_many
+        field: Roles
+        target_table: roles
+        join_table: user_roles
+        join_foreign_key: user_id
+        join_target_key: role_id
+        source_key: id
+        target_key: id
 ```
 
 `many_to_many` is intended for pure join-table relations.

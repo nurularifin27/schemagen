@@ -9,6 +9,22 @@ import (
 
 func TestLoadRelationsIfExistsReadsYAML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schemagen.relations.yaml")
+	content := []byte("tables:\n  orders:\n    relations:\n      - kind: belongs_to\n        field: User\n        target_table: users\n        foreign_key: user_id\n        target_key: id\n")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadRelationsIfExists(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Relations) != 1 || cfg.Relations[0].Field != "User" || cfg.Relations[0].Table != "orders" {
+		t.Fatalf("unexpected relations config: %#v", cfg)
+	}
+}
+
+func TestLoadRelationsIfExistsReadsLegacyFlatYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schemagen.relations.yaml")
 	content := []byte("relations:\n  - table: orders\n    kind: belongs_to\n    field: User\n    target_table: users\n    foreign_key: user_id\n    target_key: id\n")
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
@@ -18,8 +34,8 @@ func TestLoadRelationsIfExistsReadsYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cfg.Relations) != 1 || cfg.Relations[0].Field != "User" {
-		t.Fatalf("unexpected relations config: %#v", cfg)
+	if len(cfg.Relations) != 1 || cfg.Relations[0].Field != "User" || cfg.Relations[0].Table != "orders" {
+		t.Fatalf("unexpected legacy relations config: %#v", cfg)
 	}
 }
 

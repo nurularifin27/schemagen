@@ -1,35 +1,43 @@
 # Explicit relation mapping. Leave empty if you do not want generated relation fields.
-relations: []
+tables: {}
 
-# Example:
+# Recommended grouped format:
+# tables:
+#   orders:
+#     relations:
+#       - kind: belongs_to
+#         field: User
+#         target_table: users
+#         foreign_key: user_id
+#         target_key: id
+#
+#   users:
+#     relations:
+#       - kind: has_many
+#         field: Orders
+#         target_table: orders
+#         foreign_key: user_id
+#         target_key: id
+#
+#       - kind: has_one
+#         field: Profile
+#         target_table: user_profiles
+#         foreign_key: user_id
+#         target_key: id
+#
+#       - kind: many_to_many
+#         field: Roles
+#         target_table: roles
+#         join_table: user_roles
+#         join_foreign_key: user_id
+#         join_target_key: role_id
+#         source_key: id
+#         target_key: id
+#
+# Legacy flat format is still supported:
 # relations:
 #   - table: orders
 #     kind: belongs_to
-#     field: User
 #     target_table: users
 #     foreign_key: user_id
-#     target_key: id
-#
-#   - table: users
-#     kind: has_many
-#     field: Orders
-#     target_table: orders
-#     foreign_key: user_id
-#     target_key: id
-#
-#   - table: users
-#     kind: has_one
-#     field: Profile
-#     target_table: user_profiles
-#     foreign_key: user_id
-#     target_key: id
-#
-#   - table: users
-#     kind: many_to_many
-#     field: Roles
-#     target_table: roles
-#     join_table: user_roles
-#     join_foreign_key: user_id
-#     join_target_key: role_id
-#     source_key: id
 #     target_key: id

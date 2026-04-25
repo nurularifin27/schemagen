@@ -14,6 +14,11 @@ import (
 const defaultRelationsConfig = "schemagen.relations.yaml"
 
 type RelationsConfig struct {
+	Relations []RelationConfig                `yaml:"relations"`
+	Tables    map[string]TableRelationsConfig `yaml:"tables"`
+}
+
+type TableRelationsConfig struct {
 	Relations []RelationConfig `yaml:"relations"`
 }
 
@@ -43,7 +48,26 @@ func loadRelationsIfExists(path string) (RelationsConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return RelationsConfig{}, fmt.Errorf("invalid YAML in %q: %w", path, err)
 	}
+	cfg.flattenGroupedRelations()
 	return cfg, nil
+}
+
+func (cfg *RelationsConfig) flattenGroupedRelations() {
+	if len(cfg.Tables) == 0 {
+		return
+	}
+
+	flattened := make([]RelationConfig, 0, len(cfg.Relations))
+	flattened = append(flattened, cfg.Relations...)
+	for tableName, tableCfg := range cfg.Tables {
+		for _, rel := range tableCfg.Relations {
+			if strings.TrimSpace(rel.Table) == "" {
+				rel.Table = tableName
+			}
+			flattened = append(flattened, rel)
+		}
+	}
+	cfg.Relations = flattened
 }
 
 func normalizeRelationsConfig(cfg *RelationsConfig) {
@@ -150,35 +174,43 @@ func toEntityRelations(cfg RelationsConfig) []entitygen.Relation {
 func defaultRelationsTemplate() string {
 	return strings.TrimSpace(`
 # Explicit relation mapping. Leave empty if you do not want generated relation fields.
-relations: []
+tables: {}
 
-# Example:
+# Recommended grouped format:
+# tables:
+#   orders:
+#     relations:
+#       - kind: belongs_to
+#         target_table: users
+#         foreign_key: user_id
+#         target_key: id
+#
+#   users:
+#     relations:
+#       - kind: has_many
+#         target_table: orders
+#         foreign_key: user_id
+#         target_key: id
+#
+#       - kind: has_one
+#         target_table: user_profiles
+#         foreign_key: user_id
+#         target_key: id
+#
+#       - kind: many_to_many
+#         target_table: roles
+#         join_table: user_roles
+#         join_foreign_key: user_id
+#         join_target_key: role_id
+#         source_key: id
+#         target_key: id
+#
+# Legacy flat format is still supported:
 # relations:
 #   - table: orders
 #     kind: belongs_to
 #     target_table: users
 #     foreign_key: user_id
-#     target_key: id
-#
-#   - table: users
-#     kind: has_many
-#     target_table: orders
-#     foreign_key: user_id
-#     target_key: id
-#
-#   - table: users
-#     kind: has_one
-#     target_table: user_profiles
-#     foreign_key: user_id
-#     target_key: id
-#
-#   - table: users
-#     kind: many_to_many
-#     target_table: roles
-#     join_table: user_roles
-#     join_foreign_key: user_id
-#     join_target_key: role_id
-#     source_key: id
 #     target_key: id
 `) + "\n"
 }
