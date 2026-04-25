@@ -25,6 +25,7 @@ func TestRootCommandHelpIncludesCompletion(t *testing.T) {
 		"Schemagen introspects a database schema",
 		"generate",
 		"init",
+		"version",
 		"completion",
 		"schemagen init",
 	}
@@ -32,6 +33,51 @@ func TestRootCommandHelpIncludesCompletion(t *testing.T) {
 		if !strings.Contains(out, token) {
 			t.Fatalf("expected help output to contain %q, got:\n%s", token, out)
 		}
+	}
+}
+
+func TestRootCommandVersionFlag(t *testing.T) {
+	cmd := newRootCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected --version to succeed, got %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != versionLine() {
+		t.Fatalf("unexpected version output %q", got)
+	}
+}
+
+func TestRootCommandVersionShortFlag(t *testing.T) {
+	cmd := newRootCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"-v"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected -v to succeed, got %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != versionLine() {
+		t.Fatalf("unexpected version output %q", got)
+	}
+}
+
+func TestVersionSubcommand(t *testing.T) {
+	cmd := newRootCmd()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected version subcommand to succeed, got %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != versionLine() {
+		t.Fatalf("unexpected version output %q", got)
 	}
 }
 

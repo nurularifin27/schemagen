@@ -11,6 +11,8 @@ import (
 )
 
 func newRootCmd() *cobra.Command {
+	var showVersion bool
+
 	cmd := &cobra.Command{
 		Use:           "schemagen",
 		Short:         "Generate Go entities from database schema",
@@ -20,6 +22,8 @@ func newRootCmd() *cobra.Command {
 		Args:          cobra.NoArgs,
 		Example: strings.TrimSpace(`
   schemagen init
+  schemagen version
+  schemagen --version
   schemagen generate --config schemagen.yaml
   schemagen --dsn "postgres://user:pass@localhost:5432/app?sslmode=disable" --driver postgres
   schemagen generate --config schemagen.yaml --tables users,companies --on-conflict=backup
@@ -29,17 +33,35 @@ func newRootCmd() *cobra.Command {
 
 	generateCmd := newGenerateCmd()
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if showVersion {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), versionLine())
+			return err
+		}
 		return generateCmd.RunE(generateCmd, args)
 	}
 	cmd.Flags().AddFlagSet(generateCmd.Flags())
+	cmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print version and exit")
 
 	cmd.AddCommand(generateCmd)
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newVersionCmd())
 
 	cmd.InitDefaultCompletionCmd()
 	cmd.CompletionOptions.DisableDefaultCmd = false
 
 	return cmd
+}
+
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print schemagen version",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), versionLine())
+			return err
+		},
+	}
 }
 
 func newGenerateCmd() *cobra.Command {

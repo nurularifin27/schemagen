@@ -17,6 +17,10 @@ Schema-to-Go entity generator with safe regeneration and manual code preservatio
 - Handle unmanaged file conflicts with `skip`, `error`, `backup`, or `overwrite`
 - Cobra-based CLI with shell completion support
 
+## References
+
+- [Data Type Reference](./DATATYPES.md)
+
 ## Install
 
 ```bash
@@ -74,6 +78,7 @@ Commands:
 - `schemagen`
 - `schemagen generate`
 - `schemagen init`
+- `schemagen version`
 - `schemagen completion`
 
 `schemagen` behaves like `schemagen generate` and accepts the same generation flags.
@@ -133,6 +138,10 @@ schemagen generate \
 schemagen generate \
   --config schemagen.yaml \
   --quiet
+
+schemagen --version
+schemagen -v
+schemagen version
 ```
 
 CLI output behavior:
@@ -192,6 +201,16 @@ schemagen completion zsh
 schemagen completion bash
 schemagen completion fish
 schemagen completion powershell
+```
+
+### `schemagen version`
+
+Examples:
+
+```bash
+schemagen --version
+schemagen -v
+schemagen version
 ```
 
 ## Test
