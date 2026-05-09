@@ -274,7 +274,20 @@ Recommended baseline:
 ```yaml
 decimal_strategy: string
 json_strategy: rawmessage
+json_case_strategy: snake
 nullable_strategy: pointer
 ```
 
 Then add targeted overrides only where the domain requires stricter types.
+
+## GORM DeletedAt
+
+When `renderer: gorm` and a column is named `deleted_at`, schemagen maps it to:
+
+```go
+gorm.DeletedAt
+```
+
+This is renderer-specific behavior for idiomatic GORM soft delete support.
+
+If a specific table needs different behavior, prefer an explicit `table + column` override.

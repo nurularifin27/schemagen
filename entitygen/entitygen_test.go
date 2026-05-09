@@ -126,7 +126,7 @@ func TestBuildFieldsUsesMapper(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fields, imports := buildFields("users", columnTypes, dbtype.New("sqlite"))
+	fields, imports := buildFields("users", columnTypes, dbtype.New("sqlite"), RendererSQLX, "snake", nil)
 	if len(fields) != 3 {
 		t.Fatalf("expected 3 fields, got %d", len(fields))
 	}
@@ -136,6 +136,86 @@ func TestBuildFieldsUsesMapper(t *testing.T) {
 	if len(imports) == 0 {
 		t.Fatal("expected generated imports for datetime field")
 	}
+}
+
+func TestJSONCaseStrategyNames(t *testing.T) {
+	if got := jsonFieldName("created_at", "CreatedAt", "camel"); got != "createdAt" {
+		t.Fatalf("camel json field name = %q", got)
+	}
+	if got := jsonFieldName("created_at", "CreatedAt", "snake"); got != "created_at" {
+		t.Fatalf("snake json field name = %q", got)
+	}
+	if got := jsonFieldName("user_id", "UserID", "snake"); got != "user_id" {
+		t.Fatalf("snake user id json field name = %q", got)
+	}
+	if got := jsonRelationTag("UserRoles", "camel"); got != "userRoles,omitempty" {
+		t.Fatalf("camel relation tag = %q", got)
+	}
+	if got := jsonRelationTag("UserRoles", "snake"); got != "user_roles,omitempty" {
+		t.Fatalf("snake relation tag = %q", got)
+	}
+}
+
+func TestBuildFieldsUsesGORMDeletedAtForDeletedAtColumn(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, deleted_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	columnTypes, err := db.Migrator().ColumnTypes("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fields, imports := buildFields("users", columnTypes, dbtype.New("sqlite"), RendererGORM, "snake", nil)
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fields))
+	}
+	if fields[1].GoType != "gorm.DeletedAt" {
+		t.Fatalf("expected deleted_at to map to gorm.DeletedAt, got %#v", fields[1])
+	}
+	if !containsString(imports, `"gorm.io/gorm"`) {
+		t.Fatalf("expected gorm import, got %#v", imports)
+	}
+}
+
+func TestBuildFieldsKeepsDeletedAtOverride(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, deleted_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	columnTypes, err := db.Migrator().ColumnTypes("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	overrides := []dbtype.Override{{
+		Table:   "users",
+		Column:  "deleted_at",
+		GoType:  "custom.DeletedAt",
+		Imports: []string{`"example.com/project/custom"`},
+	}}
+	fields, imports := buildFields("users", columnTypes, dbtype.New("sqlite", "float64", "bytes", "pointer", overrides), RendererGORM, "snake", overrides)
+	if fields[1].GoType != "*custom.DeletedAt" {
+		t.Fatalf("expected deleted_at override to win, got %#v", fields[1])
+	}
+	if !containsString(imports, `"example.com/project/custom"`) {
+		t.Fatalf("expected custom import, got %#v", imports)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFieldNameFromColumnDoesNotSingularize(t *testing.T) {

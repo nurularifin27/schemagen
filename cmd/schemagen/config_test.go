@@ -30,6 +30,7 @@ func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
 		"on_conflict: backup\n" +
 		"decimal_strategy: string\n" +
 		"json_strategy: rawmessage\n" +
+		"json_case_strategy: camel\n" +
 		"nullable_strategy: sqlnull\n" +
 		"type_overrides:\n  - db_type: uuid\n    go_type: github.com/google/uuid.UUID\n    imports:\n      - github.com/google/uuid\n")
 	if err := os.WriteFile(path, content, 0o644); err != nil {
@@ -40,7 +41,7 @@ func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OutDir != "./entity" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.NullableStrategy != "sqlnull" {
+	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OutDir != "./entity" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.JSONCaseStrategy != "camel" || cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 	if len(cfg.TypeOverrides) != 1 || cfg.TypeOverrides[0].GoType != "github.com/google/uuid.UUID" {
@@ -76,6 +77,9 @@ func TestNormalizeConfigAppliesDefaults(t *testing.T) {
 	if cfg.JSONStrategy != defaultJSONStrategy {
 		t.Fatalf("expected json strategy %q, got %q", defaultJSONStrategy, cfg.JSONStrategy)
 	}
+	if cfg.JSONCaseStrategy != defaultJSONCaseStrategy {
+		t.Fatalf("expected json case strategy %q, got %q", defaultJSONCaseStrategy, cfg.JSONCaseStrategy)
+	}
 	if cfg.NullableStrategy != defaultNullableStrategy {
 		t.Fatalf("expected nullable strategy %q, got %q", defaultNullableStrategy, cfg.NullableStrategy)
 	}
@@ -91,6 +95,7 @@ func TestNormalizeConfigNormalizesCase(t *testing.T) {
 		OnConflict:       "BACKUP",
 		DecimalStrategy:  "String",
 		JSONStrategy:     "RAWMESSAGE",
+		JSONCaseStrategy: "Camel",
 		NullableStrategy: "SQLNULL",
 	}
 	normalizeConfig(&cfg)
@@ -110,6 +115,9 @@ func TestNormalizeConfigNormalizesCase(t *testing.T) {
 	if cfg.JSONStrategy != "rawmessage" {
 		t.Fatalf("expected normalized json strategy, got %q", cfg.JSONStrategy)
 	}
+	if cfg.JSONCaseStrategy != "camel" {
+		t.Fatalf("expected normalized json case strategy, got %q", cfg.JSONCaseStrategy)
+	}
 	if cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("expected normalized nullable strategy, got %q", cfg.NullableStrategy)
 	}
@@ -126,6 +134,7 @@ func TestMergeConfigPrefersOverride(t *testing.T) {
 		OnConflict:       "skip",
 		DecimalStrategy:  "float64",
 		JSONStrategy:     "bytes",
+		JSONCaseStrategy: "snake",
 		NullableStrategy: "pointer",
 	}
 	override := Config{
@@ -135,11 +144,12 @@ func TestMergeConfigPrefersOverride(t *testing.T) {
 		Tables:           []string{"companies"},
 		OnConflict:       "backup",
 		DecimalStrategy:  "string",
+		JSONCaseStrategy: "snake",
 		NullableStrategy: "sqlnull",
 	}
 
 	cfg := mergeConfig(base, override)
-	if cfg.DSN != "dsn-override" || cfg.OutDir != "./override" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "bytes" || cfg.NullableStrategy != "sqlnull" {
+	if cfg.DSN != "dsn-override" || cfg.OutDir != "./override" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "bytes" || cfg.JSONCaseStrategy != "snake" || cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("unexpected merged config: %#v", cfg)
 	}
 	if !reflect.DeepEqual(cfg.Tables, []string{"companies"}) {
@@ -184,8 +194,14 @@ func TestStrategyValidators(t *testing.T) {
 	if !isValidJSONStrategy("bytes") || !isValidJSONStrategy("rawmessage") {
 		t.Fatal("expected json strategies to be valid")
 	}
+	if !isValidJSONCaseStrategy("snake") || !isValidJSONCaseStrategy("camel") {
+		t.Fatal("expected json case strategies to be valid")
+	}
 	if isValidJSONStrategy("datatypes") {
 		t.Fatal("expected unsupported json strategy to be invalid")
+	}
+	if isValidJSONCaseStrategy("mixed") {
+		t.Fatal("expected unsupported json case strategy to be invalid")
 	}
 }
 
@@ -228,6 +244,7 @@ func TestDefaultConfigTemplateIncludesDefaults(t *testing.T) {
 		"on_conflict: skip",
 		"decimal_strategy: float64",
 		"json_strategy: bytes",
+		"json_case_strategy: snake",
 		"nullable_strategy: pointer",
 		"type_overrides: []",
 		"schema_migrations",

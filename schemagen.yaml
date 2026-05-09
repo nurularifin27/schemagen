@@ -32,6 +32,9 @@ decimal_strategy: string
 # JSON mapping strategy: bytes, rawmessage
 json_strategy: rawmessage
 
+# JSON tag naming strategy: snake, camel
+json_case_strategy: snake
+
 # Nullable mapping strategy: pointer, sqlnull
 nullable_strategy: pointer
 

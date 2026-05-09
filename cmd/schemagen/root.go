@@ -99,6 +99,7 @@ func bindGenerateFlags(cmd *cobra.Command, cfg *Config) {
 	flags.StringVar(&cfg.OnConflict, "on-conflict", "", "Conflict policy for unmanaged files: skip, error, backup, overwrite")
 	flags.StringVar(&cfg.DecimalStrategy, "decimal-strategy", "", "Decimal mapping strategy: float64, string")
 	flags.StringVar(&cfg.JSONStrategy, "json-strategy", "", "JSON mapping strategy: bytes, rawmessage")
+	flags.StringVar(&cfg.JSONCaseStrategy, "json-case-strategy", "", "JSON tag naming strategy: snake, camel")
 	flags.StringVar(&cfg.NullableStrategy, "nullable-strategy", "", "Nullable mapping strategy: pointer, sqlnull")
 }
 
@@ -139,6 +140,9 @@ func runGenerate(cmd *cobra.Command, cfg *Config, verbose, quiet bool) error {
 	if !isValidJSONStrategy(merged.JSONStrategy) {
 		return fmt.Errorf("invalid json_strategy %q (supported: bytes, rawmessage)", merged.JSONStrategy)
 	}
+	if !isValidJSONCaseStrategy(merged.JSONCaseStrategy) {
+		return fmt.Errorf("invalid json_case_strategy %q (supported: snake, camel)", merged.JSONCaseStrategy)
+	}
 	if !isValidNullableStrategy(merged.NullableStrategy) {
 		return fmt.Errorf("invalid nullable_strategy %q (supported: pointer, sqlnull)", merged.NullableStrategy)
 	}
@@ -165,6 +169,7 @@ func runGenerate(cmd *cobra.Command, cfg *Config, verbose, quiet bool) error {
 		OnConflict:       merged.OnConflict,
 		DecimalStrategy:  merged.DecimalStrategy,
 		JSONStrategy:     merged.JSONStrategy,
+		JSONCaseStrategy: merged.JSONCaseStrategy,
 		NullableStrategy: merged.NullableStrategy,
 		TypeOverrides:    toDBTypeOverrides(merged.TypeOverrides),
 		Relations:        toEntityRelations(relationsCfg),
@@ -263,6 +268,9 @@ func mergeConfig(base, override Config) Config {
 	}
 	if override.JSONStrategy != "" {
 		cfg.JSONStrategy = override.JSONStrategy
+	}
+	if override.JSONCaseStrategy != "" {
+		cfg.JSONCaseStrategy = override.JSONCaseStrategy
 	}
 	if override.NullableStrategy != "" {
 		cfg.NullableStrategy = override.NullableStrategy

@@ -26,6 +26,7 @@ type Options struct {
 	OnConflict       string
 	DecimalStrategy  string
 	JSONStrategy     string
+	JSONCaseStrategy string
 	NullableStrategy string
 	TypeOverrides    []dbtype.Override
 	Relations        []Relation
@@ -36,6 +37,7 @@ type GeneratedField struct {
 	Name       string
 	GoType     string
 	ColumnName string
+	JSONName   string
 	GormTags   []string
 	Imports    []string
 }
@@ -176,9 +178,9 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	}
 
 	structName := db.NamingStrategy.SchemaName(tableName)
-	fields, imports := buildFields(tableName, columnTypes, mapper)
+	fields, imports := buildFields(tableName, columnTypes, mapper, renderer.name, opts.JSONCaseStrategy, opts.TypeOverrides)
 	fieldBlock := renderer.renderFieldBlock(fields)
-	relations := buildRelations(tableName, opts.Relations)
+	relations := buildRelations(tableName, opts.Relations, opts.JSONCaseStrategy)
 	relationBlock := renderer.renderRelationBlock(relations)
 	for _, rel := range relations {
 		for _, imp := range rel.imports() {
@@ -318,7 +320,7 @@ func handleUnmanagedConflict(filePath, rendered, tableName, onConflict string, l
 	}
 }
 
-func buildFields(tableName string, columnTypes []gorm.ColumnType, mapper dbtype.Mapper) ([]GeneratedField, []string) {
+func buildFields(tableName string, columnTypes []gorm.ColumnType, mapper dbtype.Mapper, rendererName, jsonCaseStrategy string, overrides []dbtype.Override) ([]GeneratedField, []string) {
 	fields := make([]GeneratedField, 0, len(columnTypes))
 	importSet := make(map[string]bool)
 
@@ -327,10 +329,15 @@ func buildFields(tableName string, columnTypes []gorm.ColumnType, mapper dbtype.
 		column.TableName = tableName
 		fieldName := fieldNameFromColumn(column.Name)
 		field := mapper.Map(column, fieldName)
+		if shouldUseGORMDeletedAt(rendererName, column, field, overrides) {
+			field.GoType = "gorm.DeletedAt"
+			field.Imports = append(field.Imports, `"gorm.io/gorm"`)
+		}
 		fields = append(fields, GeneratedField{
 			Name:       field.Name,
 			GoType:     field.GoType,
 			ColumnName: column.Name,
+			JSONName:   jsonFieldName(column.Name, field.Name, jsonCaseStrategy),
 			GormTags:   append([]string{}, field.Tags...),
 			Imports:    append([]string{}, field.Imports...),
 		})
@@ -527,7 +534,7 @@ func (r fileRenderer) renderField(field GeneratedField) string {
 			field.Name,
 			field.GoType,
 			strings.Join(append([]string{}, field.GormTags...), ";"),
-			field.ColumnName,
+			field.JSONName,
 		)
 	default:
 		return fmt.Sprintf(
@@ -535,7 +542,7 @@ func (r fileRenderer) renderField(field GeneratedField) string {
 			field.Name,
 			field.GoType,
 			field.ColumnName,
-			field.ColumnName,
+			field.JSONName,
 		)
 	}
 }
@@ -551,7 +558,7 @@ func (r fileRenderer) renderRelation(rel GeneratedRelation) string {
 	}
 }
 
-func buildRelations(tableName string, relations []Relation) []GeneratedRelation {
+func buildRelations(tableName string, relations []Relation, jsonCaseStrategy string) []GeneratedRelation {
 	if len(relations) == 0 {
 		return nil
 	}
@@ -561,7 +568,7 @@ func buildRelations(tableName string, relations []Relation) []GeneratedRelation 
 			continue
 		}
 		targetStruct := schema.NamingStrategy{}.SchemaName(rel.TargetTable)
-		jsonTag := lowerCamel(rel.Field) + ",omitempty"
+		jsonTag := jsonRelationTag(rel.Field, jsonCaseStrategy)
 		switch rel.Kind {
 		case "belongs_to", "has_one":
 			out = append(out, GeneratedRelation{
@@ -600,4 +607,53 @@ func lowerCamel(s string) string {
 	runes := []rune(s)
 	runes[0] = unicode.ToLower(runes[0])
 	return string(runes)
+}
+
+func normalizeJSONCaseStrategy(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "snake", "camel":
+		return strings.ToLower(strings.TrimSpace(strategy))
+	default:
+		return "snake"
+	}
+}
+
+func jsonFieldName(columnName, fieldName, strategy string) string {
+	switch normalizeJSONCaseStrategy(strategy) {
+	case "snake":
+		return schema.NamingStrategy{}.ColumnName("", fieldName)
+	case "camel":
+		return lowerCamel(fieldName)
+	}
+	return columnName
+}
+
+func jsonRelationTag(fieldName, strategy string) string {
+	switch normalizeJSONCaseStrategy(strategy) {
+	case "snake":
+		return schema.NamingStrategy{}.ColumnName("", fieldName) + ",omitempty"
+	case "camel":
+		return lowerCamel(fieldName) + ",omitempty"
+	}
+	return lowerCamel(fieldName) + ",omitempty"
+}
+
+func shouldUseGORMDeletedAt(rendererName string, column dbtype.Column, field dbtype.Field, overrides []dbtype.Override) bool {
+	if rendererName != RendererGORM {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(column.Name), "deleted_at") {
+		return false
+	}
+	if override, ok := dbtype.MatchOverride(column, overrides); ok {
+		if strings.EqualFold(strings.TrimSpace(override.Column), column.Name) || strings.EqualFold(strings.TrimSpace(override.Table), column.TableName) {
+			return false
+		}
+	}
+	switch strings.TrimPrefix(field.GoType, "*") {
+	case "time.Time", "sql.NullTime":
+		return true
+	default:
+		return false
+	}
 }

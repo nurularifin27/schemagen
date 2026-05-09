@@ -123,6 +123,20 @@ func TestRootCommandRejectsInvalidNullableStrategy(t *testing.T) {
 	}
 }
 
+func TestRootCommandRejectsInvalidJSONCaseStrategy(t *testing.T) {
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"--dsn", "sqlite::memory:",
+		"--driver", "sqlite",
+		"--json-case-strategy", "mixed",
+	})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid json_case_strategy") {
+		t.Fatalf("expected invalid json case strategy error, got %v", err)
+	}
+}
+
 func TestGenerateCommandPrintsSummary(t *testing.T) {
 	cmd := newRootCmd()
 	buf := &bytes.Buffer{}

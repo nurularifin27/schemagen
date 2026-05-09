@@ -23,6 +23,7 @@ type Config struct {
 	OnConflict       string               `yaml:"on_conflict"`
 	DecimalStrategy  string               `yaml:"decimal_strategy"`
 	JSONStrategy     string               `yaml:"json_strategy"`
+	JSONCaseStrategy string               `yaml:"json_case_strategy"`
 	NullableStrategy string               `yaml:"nullable_strategy"`
 	TypeOverrides    []TypeOverrideConfig `yaml:"type_overrides"`
 }
@@ -43,6 +44,7 @@ const (
 	defaultOnConflict       = "skip"
 	defaultDecimalStrategy  = "float64"
 	defaultJSONStrategy     = "bytes"
+	defaultJSONCaseStrategy = "snake"
 	defaultNullableStrategy = "pointer"
 )
 
@@ -84,12 +86,15 @@ decimal_strategy: %s
 # JSON mapping strategy: bytes, rawmessage
 json_strategy: %s
 
+# JSON tag naming strategy: snake, camel
+json_case_strategy: %s
+
 # Nullable mapping strategy: pointer, sqlnull
 nullable_strategy: %s
 
 # Optional explicit type overrides.
 type_overrides: []
-`, defaultDriver, defaultRenderer, defaultOutDir, defaultExclude[0], defaultExclude[1], defaultExclude[2], defaultOnConflict, defaultDecimalStrategy, defaultJSONStrategy, defaultNullableStrategy)) + "\n"
+`, defaultDriver, defaultRenderer, defaultOutDir, defaultExclude[0], defaultExclude[1], defaultExclude[2], defaultOnConflict, defaultDecimalStrategy, defaultJSONStrategy, defaultJSONCaseStrategy, defaultNullableStrategy)) + "\n"
 }
 
 func loadConfigIfExists(path string) (Config, error) {
@@ -130,6 +135,9 @@ func normalizeConfig(cfg *Config) {
 	if cfg.JSONStrategy == "" {
 		cfg.JSONStrategy = defaultJSONStrategy
 	}
+	if cfg.JSONCaseStrategy == "" {
+		cfg.JSONCaseStrategy = defaultJSONCaseStrategy
+	}
 	if cfg.NullableStrategy == "" {
 		cfg.NullableStrategy = defaultNullableStrategy
 	}
@@ -138,6 +146,7 @@ func normalizeConfig(cfg *Config) {
 	cfg.OnConflict = strings.ToLower(strings.TrimSpace(cfg.OnConflict))
 	cfg.DecimalStrategy = strings.ToLower(strings.TrimSpace(cfg.DecimalStrategy))
 	cfg.JSONStrategy = strings.ToLower(strings.TrimSpace(cfg.JSONStrategy))
+	cfg.JSONCaseStrategy = strings.ToLower(strings.TrimSpace(cfg.JSONCaseStrategy))
 	cfg.NullableStrategy = strings.ToLower(strings.TrimSpace(cfg.NullableStrategy))
 }
 
@@ -171,6 +180,15 @@ func isValidDecimalStrategy(strategy string) bool {
 func isValidJSONStrategy(strategy string) bool {
 	switch strategy {
 	case "bytes", "rawmessage":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidJSONCaseStrategy(strategy string) bool {
+	switch strategy {
+	case "snake", "camel":
 		return true
 	default:
 		return false

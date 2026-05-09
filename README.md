@@ -100,6 +100,7 @@ Flags:
 | `--on-conflict` | from config | `skip`, `error`, `backup`, `overwrite` | Existing unmanaged file policy |
 | `--decimal-strategy` | from config | `float64`, `string` | Decimal mapping strategy |
 | `--json-strategy` | from config | `bytes`, `rawmessage` | JSON mapping strategy |
+| `--json-case-strategy` | from config | `snake`, `camel` | JSON tag naming strategy |
 | `--nullable-strategy` | from config | `pointer`, `sqlnull` | Nullable scalar mapping strategy |
 | `--verbose` | `false` | bool | Print per-table generation details |
 | `--quiet` | `false` | bool | Suppress informational output |
@@ -128,6 +129,7 @@ schemagen generate \
   --renderer gorm \
   --decimal-strategy string \
   --json-strategy rawmessage \
+  --json-case-strategy snake \
   --nullable-strategy pointer \
   --on-conflict backup
 
@@ -249,6 +251,7 @@ exclude:
 on_conflict: skip
 decimal_strategy: float64
 json_strategy: bytes
+json_case_strategy: snake
 nullable_strategy: pointer
 type_overrides: []
 ```
@@ -265,8 +268,27 @@ Type mapping strategies:
 - `renderer`: `plain`, `sqlx`, or `gorm`
 - `decimal_strategy`: `float64` or `string`
 - `json_strategy`: `bytes` (`[]byte`) or `rawmessage` (`json.RawMessage`)
+- `json_case_strategy`: `snake` or `camel`
 - `nullable_strategy`: `pointer` or `sqlnull`
 - `type_overrides`: explicit overrides for driver gaps, custom DB types, or per-column mapping
+
+JSON tag behavior:
+
+- `snake`
+  - fields and relations both use `snake_case`
+- `camel`
+  - fields and relations both use `lowerCamel`
+
+Recommended:
+
+- `snake` if your JSON API follows typical REST payload naming
+- `camel` if your frontend/client contracts prefer JavaScript-style casing
+
+GORM soft delete behavior:
+
+- when `renderer: gorm` and a column is named `deleted_at`, schemagen generates `gorm.DeletedAt`
+- this is a built-in convention for GORM models
+- if you need a different type for a specific `deleted_at` column, use an explicit `table + column` override
 
 Renderer behavior:
 

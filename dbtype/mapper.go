@@ -53,6 +53,10 @@ type Override struct {
 	Imports []string
 }
 
+func MatchOverride(column Column, overrides []Override) (Override, bool) {
+	return matchOverride(column, overrides)
+}
+
 type Mapper interface {
 	Map(column Column, fieldName string) Field
 }
