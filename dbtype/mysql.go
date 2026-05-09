@@ -13,55 +13,74 @@ func (mysqlMapper) goType(column Column, opts Options) (string, []string) {
 	}
 
 	fullType := strings.ToLower(column.FullType)
-	switch strings.ToLower(column.DatabaseType) {
+	switch dbType := strings.ToLower(column.DatabaseType); dbType {
 	case "tinyint":
-		if strings.Contains(fullType, "(1)") {
-			return "bool", nil
-		}
-		if hasUnsigned(fullType) {
-			return "uint8", nil
-		}
-		return "int8", nil
+		return mysqlTinyIntType(fullType), nil
 	case "smallint":
-		if hasUnsigned(fullType) {
-			return "uint16", nil
-		}
-		return "int16", nil
+		return mysqlSignedOrUnsigned(fullType, "int16", "uint16"), nil
 	case "mediumint", "int", "integer":
-		if hasUnsigned(fullType) {
-			return "uint32", nil
-		}
-		return "int32", nil
+		return mysqlSignedOrUnsigned(fullType, "int32", "uint32"), nil
 	case "bigint":
-		if hasUnsigned(fullType) {
-			return "uint64", nil
-		}
-		return "int64", nil
+		return mysqlSignedOrUnsigned(fullType, "int64", "uint64"), nil
 	case "decimal", "numeric":
 		return decimalType(opts), nil
-	case "float":
-		return "float32", nil
-	case "double", "double precision", "real":
-		return "float64", nil
-	case "bit":
-		return "[]byte", nil
-	case "bool", "boolean":
-		return "bool", nil
-	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext", "enum", "set":
-		return "string", nil
-	case "date", "datetime", "timestamp":
-		return "time.Time", []string{`"time"`}
-	case "time":
-		return "string", nil
-	case "year":
-		return "int16", nil
-	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
-		return "[]byte", nil
 	case "json":
 		return jsonType(opts)
-	case "geometry", "point", "linestring", "polygon", "multipoint", "multilinestring", "multipolygon", "geometrycollection":
-		return "[]byte", nil
 	default:
+		if match, ok := mysqlSimpleTypes[dbType]; ok {
+			return match.goType, match.imports
+		}
 		return commonTypeFallback(column, opts)
 	}
+}
+
+func mysqlTinyIntType(fullType string) string {
+	if strings.Contains(fullType, "(1)") {
+		return "bool"
+	}
+	return mysqlSignedOrUnsigned(fullType, "int8", "uint8")
+}
+
+func mysqlSignedOrUnsigned(fullType, signedType, unsignedType string) string {
+	if hasUnsigned(fullType) {
+		return unsignedType
+	}
+	return signedType
+}
+
+var mysqlSimpleTypes = map[string]scanTypeMatch{
+	"float":              {goType: "float32"},
+	"double":             {goType: "float64"},
+	"double precision":   {goType: "float64"},
+	"real":               {goType: "float64"},
+	"bit":                {goType: "[]byte"},
+	"bool":               {goType: "bool"},
+	"boolean":            {goType: "bool"},
+	"char":               {goType: "string"},
+	"varchar":            {goType: "string"},
+	"tinytext":           {goType: "string"},
+	"text":               {goType: "string"},
+	"mediumtext":         {goType: "string"},
+	"longtext":           {goType: "string"},
+	"enum":               {goType: "string"},
+	"set":                {goType: "string"},
+	"date":               {goType: "time.Time", imports: []string{`"time"`}},
+	"datetime":           {goType: "time.Time", imports: []string{`"time"`}},
+	"timestamp":          {goType: "time.Time", imports: []string{`"time"`}},
+	"time":               {goType: "string"},
+	"year":               {goType: "int16"},
+	"binary":             {goType: "[]byte"},
+	"varbinary":          {goType: "[]byte"},
+	"tinyblob":           {goType: "[]byte"},
+	"blob":               {goType: "[]byte"},
+	"mediumblob":         {goType: "[]byte"},
+	"longblob":           {goType: "[]byte"},
+	"geometry":           {goType: "[]byte"},
+	"point":              {goType: "[]byte"},
+	"linestring":         {goType: "[]byte"},
+	"polygon":            {goType: "[]byte"},
+	"multipoint":         {goType: "[]byte"},
+	"multilinestring":    {goType: "[]byte"},
+	"multipolygon":       {goType: "[]byte"},
+	"geometrycollection": {goType: "[]byte"},
 }

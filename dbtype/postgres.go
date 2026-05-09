@@ -12,41 +12,68 @@ func (postgresMapper) goType(column Column, opts Options) (string, []string) {
 		return goType, imports
 	}
 
-	switch strings.ToLower(column.DatabaseType) {
-	case "smallint", "int2":
-		return "int16", nil
-	case "integer", "int", "int4", "serial", "serial4":
-		return "int32", nil
-	case "bigint", "int8", "bigserial", "serial8":
-		return "int64", nil
-	case "real", "float4":
-		return "float32", nil
-	case "double precision", "float8":
-		return "float64", nil
+	switch dbType := strings.ToLower(column.DatabaseType); dbType {
 	case "numeric", "decimal":
 		return decimalType(opts), nil
-	case "boolean", "bool":
-		return "bool", nil
-	case "char", "character", "bpchar", "varchar", "character varying", "text", "citext", "name":
-		return "string", nil
-	case "date", "time", "time without time zone", "timetz", "time with time zone", "timestamp", "timestamp without time zone", "timestamptz", "timestamp with time zone":
-		return "time.Time", []string{`"time"`}
-	case "interval":
-		return "string", nil
-	case "bytea":
-		return "[]byte", nil
 	case "json", "jsonb":
 		return jsonType(opts)
-	case "uuid":
-		return "string", nil
-	case "inet", "cidr", "macaddr", "macaddr8", "xml", "money", "tsvector", "tsquery":
-		return "string", nil
+	default:
+		if strings.HasPrefix(dbType, "_") {
+			return postgresArrayType(dbType), nil
+		}
+		if match, ok := postgresSimpleTypes[dbType]; ok {
+			return match.goType, match.imports
+		}
+		return commonTypeFallback(column, opts)
 	}
+}
 
-	if strings.HasPrefix(column.DatabaseType, "_") {
-		return postgresArrayType(column.DatabaseType), nil
-	}
-	return commonTypeFallback(column, opts)
+var postgresSimpleTypes = map[string]scanTypeMatch{
+	"smallint":                    {goType: "int16"},
+	"int2":                        {goType: "int16"},
+	"integer":                     {goType: "int32"},
+	"int":                         {goType: "int32"},
+	"int4":                        {goType: "int32"},
+	"serial":                      {goType: "int32"},
+	"serial4":                     {goType: "int32"},
+	"bigint":                      {goType: "int64"},
+	"int8":                        {goType: "int64"},
+	"bigserial":                   {goType: "int64"},
+	"serial8":                     {goType: "int64"},
+	"real":                        {goType: "float32"},
+	"float4":                      {goType: "float32"},
+	"double precision":            {goType: "float64"},
+	"float8":                      {goType: "float64"},
+	"boolean":                     {goType: "bool"},
+	"bool":                        {goType: "bool"},
+	"char":                        {goType: "string"},
+	"character":                   {goType: "string"},
+	"bpchar":                      {goType: "string"},
+	"varchar":                     {goType: "string"},
+	"character varying":           {goType: "string"},
+	"text":                        {goType: "string"},
+	"citext":                      {goType: "string"},
+	"name":                        {goType: "string"},
+	"date":                        {goType: "time.Time", imports: []string{`"time"`}},
+	"time":                        {goType: "time.Time", imports: []string{`"time"`}},
+	"time without time zone":      {goType: "time.Time", imports: []string{`"time"`}},
+	"timetz":                      {goType: "time.Time", imports: []string{`"time"`}},
+	"time with time zone":         {goType: "time.Time", imports: []string{`"time"`}},
+	"timestamp":                   {goType: "time.Time", imports: []string{`"time"`}},
+	"timestamp without time zone": {goType: "time.Time", imports: []string{`"time"`}},
+	"timestamptz":                 {goType: "time.Time", imports: []string{`"time"`}},
+	"timestamp with time zone":    {goType: "time.Time", imports: []string{`"time"`}},
+	"interval":                    {goType: "string"},
+	"bytea":                       {goType: "[]byte"},
+	"uuid":                        {goType: "string"},
+	"inet":                        {goType: "string"},
+	"cidr":                        {goType: "string"},
+	"macaddr":                     {goType: "string"},
+	"macaddr8":                    {goType: "string"},
+	"xml":                         {goType: "string"},
+	"money":                       {goType: "string"},
+	"tsvector":                    {goType: "string"},
+	"tsquery":                     {goType: "string"},
 }
 
 func postgresArrayType(databaseType string) string {

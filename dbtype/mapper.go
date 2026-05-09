@@ -80,43 +80,57 @@ const (
 )
 
 func New(driver string, rawOpts ...any) Mapper {
+	opts := parseMapperOptions(rawOpts)
+	return mapper{driver: newDriverMapper(driver), opts: opts}
+}
+
+func parseMapperOptions(rawOpts []any) Options {
 	opts := Options{
 		DecimalStrategy:  DecimalStrategyFloat64,
 		JSONStrategy:     JSONStrategyBytes,
 		NullableStrategy: NullableStrategyPointer,
 	}
 	if len(rawOpts) > 0 {
-		if decimal, ok := rawOpts[0].(string); ok && strings.TrimSpace(decimal) != "" {
-			opts.DecimalStrategy = strings.ToLower(strings.TrimSpace(decimal))
-		}
+		opts.DecimalStrategy = normalizedStringOption(rawOpts[0], opts.DecimalStrategy)
 	}
 	if len(rawOpts) > 1 {
-		if json, ok := rawOpts[1].(string); ok && strings.TrimSpace(json) != "" {
-			opts.JSONStrategy = strings.ToLower(strings.TrimSpace(json))
-		}
+		opts.JSONStrategy = normalizedStringOption(rawOpts[1], opts.JSONStrategy)
 	}
 	if len(rawOpts) > 2 {
-		if nullable, ok := rawOpts[2].(string); ok && strings.TrimSpace(nullable) != "" {
-			opts.NullableStrategy = strings.ToLower(strings.TrimSpace(nullable))
-		}
+		opts.NullableStrategy = normalizedStringOption(rawOpts[2], opts.NullableStrategy)
 	}
 	if len(rawOpts) > 3 {
 		if overrides, ok := rawOpts[3].([]Override); ok {
 			opts.Overrides = overrides
 		}
 	}
+	return opts
+}
 
+func normalizedStringOption(value any, fallback string) string {
+	str, ok := value.(string)
+	if !ok {
+		return fallback
+	}
+	str = strings.ToLower(strings.TrimSpace(str))
+	if str == "" {
+		return fallback
+	}
+	return str
+}
+
+func newDriverMapper(driver string) driverMapper {
 	switch strings.ToLower(strings.TrimSpace(driver)) {
 	case "postgres":
-		return mapper{driver: postgresMapper{}, opts: opts}
+		return postgresMapper{}
 	case "mysql":
-		return mapper{driver: mysqlMapper{}, opts: opts}
+		return mysqlMapper{}
 	case "mariadb":
-		return mapper{driver: mariaDBMapper{}, opts: opts}
+		return mariaDBMapper{}
 	case "sqlite", "sqlite3":
-		return mapper{driver: sqliteMapper{}, opts: opts}
+		return sqliteMapper{}
 	default:
-		return mapper{driver: defaultMapper{}, opts: opts}
+		return defaultMapper{}
 	}
 }
 
@@ -226,59 +240,15 @@ func typeFromScanType(t reflect.Type) (string, []string, bool) {
 		return "[]byte", nil, true
 	}
 
-	switch t.Kind() {
-	case reflect.Bool:
-		return "bool", nil, true
-	case reflect.Int:
-		return "int", nil, true
-	case reflect.Int8:
-		return "int8", nil, true
-	case reflect.Int16:
-		return "int16", nil, true
-	case reflect.Int32:
-		return "int32", nil, true
-	case reflect.Int64:
-		return "int64", nil, true
-	case reflect.Uint:
-		return "uint", nil, true
-	case reflect.Uint8:
-		return "uint8", nil, true
-	case reflect.Uint16:
-		return "uint16", nil, true
-	case reflect.Uint32:
-		return "uint32", nil, true
-	case reflect.Uint64:
-		return "uint64", nil, true
-	case reflect.Float32:
-		return "float32", nil, true
-	case reflect.Float64:
-		return "float64", nil, true
-	case reflect.String:
-		return "string", nil, true
+	if goType, ok := scanKindTypes[t.Kind()]; ok {
+		return goType, nil, true
 	}
 
 	pkg := t.PkgPath()
 	name := t.Name()
 	full := pkg + "." + name
-	switch full {
-	case "time.Time":
-		return "time.Time", []string{`"time"`}, true
-	case "database/sql.NullString":
-		return "string", nil, true
-	case "database/sql.NullBool":
-		return "bool", nil, true
-	case "database/sql.NullByte":
-		return "int8", nil, true
-	case "database/sql.NullInt16":
-		return "int16", nil, true
-	case "database/sql.NullInt32":
-		return "int32", nil, true
-	case "database/sql.NullInt64":
-		return "int64", nil, true
-	case "database/sql.NullFloat64":
-		return "float64", nil, true
-	case "database/sql.NullTime":
-		return "time.Time", []string{`"time"`}, true
+	if match, ok := scanNamedTypes[full]; ok {
+		return match.goType, match.imports, true
 	}
 
 	if name == "UUID" && strings.Contains(pkg, "uuid") {
@@ -292,6 +262,42 @@ func typeFromScanType(t reflect.Type) (string, []string, bool) {
 	}
 
 	return "", nil, false
+}
+
+var scanKindTypes = map[reflect.Kind]string{
+	reflect.Bool:    "bool",
+	reflect.Int:     "int",
+	reflect.Int8:    "int8",
+	reflect.Int16:   "int16",
+	reflect.Int32:   "int32",
+	reflect.Int64:   "int64",
+	reflect.Uint:    "uint",
+	reflect.Uint8:   "uint8",
+	reflect.Uint16:  "uint16",
+	reflect.Uint32:  "uint32",
+	reflect.Uint64:  "uint64",
+	reflect.Float32: "float32",
+	reflect.Float64: "float64",
+	reflect.String:  "string",
+}
+
+type scanTypeMatch struct {
+	goType  string
+	imports []string
+}
+
+var scanNamedTypes = map[string]scanTypeMatch{
+	"time.Time":               {goType: "time.Time", imports: []string{`"time"`}},
+	"database/sql.NullString": {goType: "string"},
+	"database/sql.NullBool":   {goType: "bool"},
+	"database/sql.NullByte":   {goType: "int8"},
+	"database/sql.NullInt16":  {goType: "int16"},
+	"database/sql.NullInt32":  {goType: "int32"},
+	"database/sql.NullInt64":  {goType: "int64"},
+	"database/sql.NullFloat64": {
+		goType: "float64",
+	},
+	"database/sql.NullTime": {goType: "time.Time", imports: []string{`"time"`}},
 }
 
 func shouldUsePointer(column Column, goType string) bool {

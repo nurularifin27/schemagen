@@ -4,6 +4,7 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/nurularifin27/schemagen)](https://github.com/nurularifin27/schemagen/tags)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/nurularifin27/schemagen)](https://github.com/nurularifin27/schemagen/blob/main/go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/nurularifin27/schemagen)](https://goreportcard.com/report/github.com/nurularifin27/schemagen)
+[![License](https://img.shields.io/github/license/nurularifin27/schemagen)](./LICENSE)
 
 Schema-to-Go entity generator with safe regeneration and manual code preservation.
 
