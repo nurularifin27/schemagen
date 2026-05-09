@@ -204,14 +204,15 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	tableNameContent := renderer.renderTableSection(structName, tableName)
 	rendered := renderEntityFile(importBlock, tableNameContent, structName, fieldRefsBlock, fieldBlock, relationBlock)
 
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		if err := writeFormatted(filePath, rendered); err != nil {
-			return "", err
-		}
-		if opts.Logger.Verbosef != nil {
-			opts.Logger.Verbosef("generated %s", filePath)
-		}
-		return "generated", nil
+	payload := entityFilePayload{
+		imports:          imports,
+		tableNameContent: tableNameContent,
+		fieldRefsBlock:   fieldRefsBlock,
+		fieldBlock:       fieldBlock,
+		relationBlock:    relationBlock,
+	}
+	if status, handled, err := writeNewEntityFileIfMissing(filePath, rendered, opts.Logger); handled {
+		return status, err
 	}
 
 	raw, err := os.ReadFile(filePath)
@@ -222,63 +223,7 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	if !isManagedFile(content) {
 		return handleUnmanagedConflict(filePath, rendered, tableName, opts.OnConflict, opts.Logger)
 	}
-
-	existingImports := extractExistingImports(content)
-	mergedImports := mergeImports(filterManagedImports(existingImports), imports)
-	newImportBlock := renderImportBlock(mergedImports)
-
-	reImport := regexp.MustCompile(`(?s)import \((.*?)\)|import ".*?"`)
-	if reImport.MatchString(content) {
-		content = reImport.ReplaceAllString(content, newImportBlock)
-	} else if newImportBlock != "" {
-		content = strings.Replace(content, "package entity\n\n", "package entity\n\n"+newImportBlock+"\n\n", 1)
-	}
-
-	content = replaceSection(content,
-		`// \[SECTION: TABLE_NAME: START\].*?// \[SECTION: TABLE_NAME: END\] - DO NOT REMOVE`,
-		"// [SECTION: TABLE_NAME: START] - DO NOT REMOVE\n"+tableNameContent+"\n\n// [SECTION: TABLE_NAME: END] - DO NOT REMOVE",
-	)
-
-	fieldsSection := ""
-	if fieldRefsBlock != "" {
-		fieldsSection = "// [SECTION: FIELDS: START] - DO NOT REMOVE\n" + fieldRefsBlock + "\n\n// [SECTION: FIELDS: END] - DO NOT REMOVE"
-	}
-	if strings.Contains(content, "// [SECTION: FIELDS: START] - DO NOT REMOVE") {
-		content = replaceSection(content,
-			`// \[SECTION: FIELDS: START\].*?// \[SECTION: FIELDS: END\] - DO NOT REMOVE`,
-			fieldsSection,
-		)
-	} else if fieldsSection != "" {
-		content = strings.Replace(content,
-			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE",
-			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE\n\n"+fieldsSection,
-			1,
-		)
-	}
-
-	content = replaceSection(content,
-		`// \[SECTION: BASE: START\].*?// \[SECTION: BASE: END\] - DO NOT REMOVE`,
-		"// [SECTION: BASE: START] - DO NOT REMOVE\n"+fieldBlock+"\n\t// [SECTION: BASE: END] - DO NOT REMOVE",
-	)
-
-	relationSection := "\t// [SECTION: RELATIONS: START] - DO NOT REMOVE\n"
-	if relationBlock != "" {
-		relationSection += relationBlock + "\n"
-	}
-	relationSection += "\t// [SECTION: RELATIONS: END] - DO NOT REMOVE"
-
-	if strings.Contains(content, "// [SECTION: RELATIONS: START] - DO NOT REMOVE") {
-		content = replaceSection(content,
-			`// \[SECTION: RELATIONS: START\].*?// \[SECTION: RELATIONS: END\] - DO NOT REMOVE`,
-			strings.TrimPrefix(relationSection, "\t"),
-		)
-	} else {
-		content = strings.Replace(content,
-			"\t// [SECTION: BASE: END] - DO NOT REMOVE",
-			"\t// [SECTION: BASE: END] - DO NOT REMOVE\n\n"+relationSection,
-			1,
-		)
-	}
+	content = syncManagedEntityContent(content, payload)
 
 	if err := writeFormatted(filePath, content); err != nil {
 		return "", err
@@ -287,6 +232,113 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 		opts.Logger.Verbosef("synced %s", filePath)
 	}
 	return "generated", nil
+}
+
+type entityFilePayload struct {
+	imports          []string
+	tableNameContent string
+	fieldRefsBlock   string
+	fieldBlock       string
+	relationBlock    string
+}
+
+func writeNewEntityFileIfMissing(filePath, rendered string, logger Logger) (string, bool, error) {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		if err := writeFormatted(filePath, rendered); err != nil {
+			return "", true, err
+		}
+		if logger.Verbosef != nil {
+			logger.Verbosef("generated %s", filePath)
+		}
+		return "generated", true, nil
+	}
+	return "", false, nil
+}
+
+func syncManagedEntityContent(content string, payload entityFilePayload) string {
+	content = syncManagedImports(content, payload.imports)
+	content = syncTableNameSection(content, payload.tableNameContent)
+	content = syncFieldRefsSection(content, payload.fieldRefsBlock)
+	content = syncBaseSection(content, payload.fieldBlock)
+	return syncRelationSection(content, payload.relationBlock)
+}
+
+func syncManagedImports(content string, imports []string) string {
+	existingImports := extractExistingImports(content)
+	mergedImports := mergeImports(filterManagedImports(existingImports), imports)
+	newImportBlock := renderImportBlock(mergedImports)
+
+	reImport := regexp.MustCompile(`(?s)import \((.*?)\)|import ".*?"`)
+	if reImport.MatchString(content) {
+		return reImport.ReplaceAllString(content, newImportBlock)
+	}
+	if newImportBlock != "" {
+		return strings.Replace(content, "package entity\n\n", "package entity\n\n"+newImportBlock+"\n\n", 1)
+	}
+	return content
+}
+
+func syncTableNameSection(content, tableNameContent string) string {
+	return replaceSection(content,
+		`// \[SECTION: TABLE_NAME: START\].*?// \[SECTION: TABLE_NAME: END\] - DO NOT REMOVE`,
+		"// [SECTION: TABLE_NAME: START] - DO NOT REMOVE\n"+tableNameContent+"\n\n// [SECTION: TABLE_NAME: END] - DO NOT REMOVE",
+	)
+}
+
+func syncFieldRefsSection(content, fieldRefsBlock string) string {
+	fieldsSection := renderManagedFieldRefsSection(fieldRefsBlock)
+	if strings.Contains(content, "// [SECTION: FIELDS: START] - DO NOT REMOVE") {
+		return replaceSection(content,
+			`// \[SECTION: FIELDS: START\].*?// \[SECTION: FIELDS: END\] - DO NOT REMOVE`,
+			fieldsSection,
+		)
+	}
+	if fieldsSection != "" {
+		return strings.Replace(content,
+			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE",
+			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE\n\n"+fieldsSection,
+			1,
+		)
+	}
+	return content
+}
+
+func renderManagedFieldRefsSection(fieldRefsBlock string) string {
+	if fieldRefsBlock == "" {
+		return ""
+	}
+	return "// [SECTION: FIELDS: START] - DO NOT REMOVE\n" + fieldRefsBlock + "\n\n// [SECTION: FIELDS: END] - DO NOT REMOVE"
+}
+
+func syncBaseSection(content, fieldBlock string) string {
+	return replaceSection(content,
+		`// \[SECTION: BASE: START\].*?// \[SECTION: BASE: END\] - DO NOT REMOVE`,
+		"// [SECTION: BASE: START] - DO NOT REMOVE\n"+fieldBlock+"\n\t// [SECTION: BASE: END] - DO NOT REMOVE",
+	)
+}
+
+func syncRelationSection(content, relationBlock string) string {
+	relationSection := renderManagedRelationSection(relationBlock)
+	if strings.Contains(content, "// [SECTION: RELATIONS: START] - DO NOT REMOVE") {
+		return replaceSection(content,
+			`// \[SECTION: RELATIONS: START\].*?// \[SECTION: RELATIONS: END\] - DO NOT REMOVE`,
+			strings.TrimPrefix(relationSection, "\t"),
+		)
+	}
+	return strings.Replace(content,
+		"\t// [SECTION: BASE: END] - DO NOT REMOVE",
+		"\t// [SECTION: BASE: END] - DO NOT REMOVE\n\n"+relationSection,
+		1,
+	)
+}
+
+func renderManagedRelationSection(relationBlock string) string {
+	relationSection := "\t// [SECTION: RELATIONS: START] - DO NOT REMOVE\n"
+	if relationBlock != "" {
+		relationSection += relationBlock + "\n"
+	}
+	relationSection += "\t// [SECTION: RELATIONS: END] - DO NOT REMOVE"
+	return relationSection
 }
 
 func renderEntityFile(importBlock, tableNameContent, structName, fieldRefsBlock, fieldBlock, relationBlock string) string {
