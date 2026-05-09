@@ -104,53 +104,11 @@ func bindGenerateFlags(cmd *cobra.Command, cfg *Config) {
 }
 
 func runGenerate(cmd *cobra.Command, cfg *Config, verbose, quiet bool) error {
-	configPath, err := cmd.Flags().GetString("config")
+	merged, relationsCfg, err := loadGenerateConfig(cmd, *cfg)
 	if err != nil {
 		return err
 	}
-	relationsPath, err := cmd.Flags().GetString("relations-config")
-	if err != nil {
-		return err
-	}
-
-	fileCfg, err := loadConfigIfExists(configPath)
-	if err != nil {
-		return err
-	}
-	merged := mergeConfig(fileCfg, *cfg)
-	normalizeConfig(&merged)
-	relationsCfg, err := loadRelationsIfExists(relationsPath)
-	if err != nil {
-		return err
-	}
-	normalizeRelationsConfig(&relationsCfg)
-
-	if merged.DSN == "" {
-		return fmt.Errorf("dsn is required; provide --dsn or set it in schemagen.yaml")
-	}
-	if !isValidConflictPolicy(merged.OnConflict) {
-		return fmt.Errorf("invalid on_conflict %q (supported: skip, error, backup, overwrite)", merged.OnConflict)
-	}
-	if !isValidRenderer(merged.Renderer) {
-		return fmt.Errorf("invalid renderer %q (supported: plain, sqlx, gorm)", merged.Renderer)
-	}
-	if !isValidDecimalStrategy(merged.DecimalStrategy) {
-		return fmt.Errorf("invalid decimal_strategy %q (supported: float64, string)", merged.DecimalStrategy)
-	}
-	if !isValidJSONStrategy(merged.JSONStrategy) {
-		return fmt.Errorf("invalid json_strategy %q (supported: bytes, rawmessage)", merged.JSONStrategy)
-	}
-	if !isValidJSONCaseStrategy(merged.JSONCaseStrategy) {
-		return fmt.Errorf("invalid json_case_strategy %q (supported: snake, camel)", merged.JSONCaseStrategy)
-	}
-	if !isValidNullableStrategy(merged.NullableStrategy) {
-		return fmt.Errorf("invalid nullable_strategy %q (supported: pointer, sqlnull)", merged.NullableStrategy)
-	}
-	merged.TypeOverrides = normalizeTypeOverrides(merged.TypeOverrides)
-	if err := validateTypeOverrides(merged.TypeOverrides); err != nil {
-		return err
-	}
-	if err := validateRelationsConfig(relationsCfg); err != nil {
+	if err := validateGenerateConfig(merged, relationsCfg); err != nil {
 		return err
 	}
 
@@ -189,6 +147,60 @@ func runGenerate(cmd *cobra.Command, cfg *Config, verbose, quiet bool) error {
 		merged.OutDir,
 	)
 	return nil
+}
+
+func loadGenerateConfig(cmd *cobra.Command, cfg Config) (Config, RelationsConfig, error) {
+	configPath, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return Config{}, RelationsConfig{}, err
+	}
+	relationsPath, err := cmd.Flags().GetString("relations-config")
+	if err != nil {
+		return Config{}, RelationsConfig{}, err
+	}
+
+	fileCfg, err := loadConfigIfExists(configPath)
+	if err != nil {
+		return Config{}, RelationsConfig{}, err
+	}
+	merged := mergeConfig(fileCfg, cfg)
+	normalizeConfig(&merged)
+
+	relationsCfg, err := loadRelationsIfExists(relationsPath)
+	if err != nil {
+		return Config{}, RelationsConfig{}, err
+	}
+	normalizeRelationsConfig(&relationsCfg)
+	return merged, relationsCfg, nil
+}
+
+func validateGenerateConfig(cfg Config, relationsCfg RelationsConfig) error {
+	if cfg.DSN == "" {
+		return fmt.Errorf("dsn is required; provide --dsn or set it in schemagen.yaml")
+	}
+
+	validations := []struct {
+		ok      bool
+		message string
+	}{
+		{ok: isValidConflictPolicy(cfg.OnConflict), message: fmt.Sprintf("invalid on_conflict %q (supported: skip, error, backup, overwrite)", cfg.OnConflict)},
+		{ok: isValidRenderer(cfg.Renderer), message: fmt.Sprintf("invalid renderer %q (supported: plain, sqlx, gorm)", cfg.Renderer)},
+		{ok: isValidDecimalStrategy(cfg.DecimalStrategy), message: fmt.Sprintf("invalid decimal_strategy %q (supported: float64, string)", cfg.DecimalStrategy)},
+		{ok: isValidJSONStrategy(cfg.JSONStrategy), message: fmt.Sprintf("invalid json_strategy %q (supported: bytes, rawmessage)", cfg.JSONStrategy)},
+		{ok: isValidJSONCaseStrategy(cfg.JSONCaseStrategy), message: fmt.Sprintf("invalid json_case_strategy %q (supported: snake, camel)", cfg.JSONCaseStrategy)},
+		{ok: isValidNullableStrategy(cfg.NullableStrategy), message: fmt.Sprintf("invalid nullable_strategy %q (supported: pointer, sqlnull)", cfg.NullableStrategy)},
+	}
+	for _, validation := range validations {
+		if !validation.ok {
+			return fmt.Errorf("%s", validation.message)
+		}
+	}
+
+	cfg.TypeOverrides = normalizeTypeOverrides(cfg.TypeOverrides)
+	if err := validateTypeOverrides(cfg.TypeOverrides); err != nil {
+		return err
+	}
+	return validateRelationsConfig(relationsCfg)
 }
 
 func newInitCmd() *cobra.Command {

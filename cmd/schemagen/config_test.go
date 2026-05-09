@@ -19,21 +19,8 @@ func TestLoadConfigIfExistsMissingFile(t *testing.T) {
 }
 
 func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "schemagen.yaml")
-	content := []byte("dsn: postgres://x\n" +
-		"driver: postgres\n" +
-		"renderer: gorm\n" +
-		"out_dir: ./entity\n" +
-		"tables:\n  - users\n" +
-		"exclude:\n  - migrations\n" +
-		"on_conflict: backup\n" +
-		"decimal_strategy: string\n" +
-		"json_strategy: rawmessage\n" +
-		"json_case_strategy: camel\n" +
-		"nullable_strategy: sqlnull\n" +
-		"type_overrides:\n  - db_type: uuid\n    go_type: github.com/google/uuid.UUID\n    imports:\n      - github.com/google/uuid\n")
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	path := filepath.Join(t.TempDir(), "schemagen.yaml")
+	if err := os.WriteFile(path, []byte(sampleConfigYAML()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -41,18 +28,7 @@ func TestLoadConfigIfExistsReadsYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OutDir != "./entity" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.JSONCaseStrategy != "camel" || cfg.NullableStrategy != "sqlnull" {
-		t.Fatalf("unexpected config: %#v", cfg)
-	}
-	if len(cfg.TypeOverrides) != 1 || cfg.TypeOverrides[0].GoType != "github.com/google/uuid.UUID" {
-		t.Fatalf("unexpected type overrides: %#v", cfg.TypeOverrides)
-	}
-	if !reflect.DeepEqual(cfg.Tables, []string{"users"}) {
-		t.Fatalf("unexpected tables: %#v", cfg.Tables)
-	}
-	if !reflect.DeepEqual(cfg.Exclude, []string{"migrations"}) {
-		t.Fatalf("unexpected exclude: %#v", cfg.Exclude)
-	}
+	assertSampleConfig(t, cfg)
 }
 
 func TestNormalizeConfigAppliesDefaults(t *testing.T) {
@@ -173,35 +149,58 @@ func TestIsValidConflictPolicy(t *testing.T) {
 }
 
 func TestStrategyValidators(t *testing.T) {
-	if !isValidRenderer("plain") || !isValidRenderer("sqlx") || !isValidRenderer("gorm") {
-		t.Fatal("expected renderers to be valid")
+	testValidator(t, "renderer", isValidRenderer, []string{"plain", "sqlx", "gorm"}, []string{"ent"})
+	testValidator(t, "decimal", isValidDecimalStrategy, []string{"float64", "string"}, []string{"decimal"})
+	testValidator(t, "nullable", isValidNullableStrategy, []string{"pointer", "sqlnull"}, []string{"ptr"})
+	testValidator(t, "json", isValidJSONStrategy, []string{"bytes", "rawmessage"}, []string{"datatypes"})
+	testValidator(t, "json-case", isValidJSONCaseStrategy, []string{"snake", "camel"}, []string{"mixed"})
+}
+
+func sampleConfigYAML() string {
+	return "dsn: postgres://x\n" +
+		"driver: postgres\n" +
+		"renderer: gorm\n" +
+		"out_dir: ./entity\n" +
+		"tables:\n  - users\n" +
+		"exclude:\n  - migrations\n" +
+		"on_conflict: backup\n" +
+		"decimal_strategy: string\n" +
+		"json_strategy: rawmessage\n" +
+		"json_case_strategy: camel\n" +
+		"nullable_strategy: sqlnull\n" +
+		"type_overrides:\n  - db_type: uuid\n    go_type: github.com/google/uuid.UUID\n    imports:\n      - github.com/google/uuid\n"
+}
+
+func assertSampleConfig(t *testing.T, cfg Config) {
+	t.Helper()
+	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OutDir != "./entity" {
+		t.Fatalf("unexpected base config: %#v", cfg)
 	}
-	if isValidRenderer("ent") {
-		t.Fatal("expected unsupported renderer to be invalid")
+	if cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.JSONCaseStrategy != "camel" || cfg.NullableStrategy != "sqlnull" {
+		t.Fatalf("unexpected strategy config: %#v", cfg)
 	}
-	if !isValidDecimalStrategy("float64") || !isValidDecimalStrategy("string") {
-		t.Fatal("expected decimal strategies to be valid")
+	if len(cfg.TypeOverrides) != 1 || cfg.TypeOverrides[0].GoType != "github.com/google/uuid.UUID" {
+		t.Fatalf("unexpected type overrides: %#v", cfg.TypeOverrides)
 	}
-	if !isValidNullableStrategy("pointer") || !isValidNullableStrategy("sqlnull") {
-		t.Fatal("expected nullable strategies to be valid")
+	if !reflect.DeepEqual(cfg.Tables, []string{"users"}) {
+		t.Fatalf("unexpected tables: %#v", cfg.Tables)
 	}
-	if isValidNullableStrategy("ptr") {
-		t.Fatal("expected unsupported nullable strategy to be invalid")
+	if !reflect.DeepEqual(cfg.Exclude, []string{"migrations"}) {
+		t.Fatalf("unexpected exclude: %#v", cfg.Exclude)
 	}
-	if isValidDecimalStrategy("decimal") {
-		t.Fatal("expected unsupported decimal strategy to be invalid")
+}
+
+func testValidator(t *testing.T, name string, fn func(string) bool, valid []string, invalid []string) {
+	t.Helper()
+	for _, value := range valid {
+		if !fn(value) {
+			t.Fatalf("expected %s %q to be valid", name, value)
+		}
 	}
-	if !isValidJSONStrategy("bytes") || !isValidJSONStrategy("rawmessage") {
-		t.Fatal("expected json strategies to be valid")
-	}
-	if !isValidJSONCaseStrategy("snake") || !isValidJSONCaseStrategy("camel") {
-		t.Fatal("expected json case strategies to be valid")
-	}
-	if isValidJSONStrategy("datatypes") {
-		t.Fatal("expected unsupported json strategy to be invalid")
-	}
-	if isValidJSONCaseStrategy("mixed") {
-		t.Fatal("expected unsupported json case strategy to be invalid")
+	for _, value := range invalid {
+		if fn(value) {
+			t.Fatalf("expected %s %q to be invalid", name, value)
+		}
 	}
 }
 
