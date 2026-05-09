@@ -6,26 +6,42 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/nurularifin27/schemagen)](https://goreportcard.com/report/github.com/nurularifin27/schemagen)
 [![License](https://img.shields.io/github/license/nurularifin27/schemagen)](./LICENSE)
 
-Schema-to-Go entity generator with safe regeneration and manual code preservation.
+Schema-to-Go entity generator with safe regeneration, renderer-aware output, driver-specific type mapping, and explicit relation config.
 
-## Features
+`schemagen` is built for teams that want generated entities without giving up control:
 
-- Generate Go entity structs from database schema
-- Multiple renderers: `plain`, `sqlx`, `gorm`
-- Generic scan-type-based field inference
-- Preserve manual code outside managed `SECTION` markers
-- Merge generated imports with manual imports without duplicates
-- Handle unmanaged file conflicts with `skip`, `error`, `backup`, or `overwrite`
-- Cobra-based CLI with shell completion support
+- `plain` renderer for clean domain structs
+- `sqlx` renderer for raw SQL / `database/sql` / `sqlx`
+- `gorm` renderer for practical GORM-ready models
+- managed regeneration that preserves manual code outside generated sections
+- explicit type and relation override hooks when database metadata is not enough
 
-## References
+## Why
 
-- [Data Type Reference](./DATATYPES.md)
+Most schema generators fail in one of two ways:
+
+- too naive, so the generated code is wrong or noisy
+- too magical, so the output is hard to trust
+
+`schemagen` stays in the middle:
+
+- type mapping is driver-aware
+- relation generation is explicit, not guessed blindly
+- config is small for simple schemas and still scalable for large ones
+- generated files can be regenerated safely without destroying manual code
 
 ## Install
 
 ```bash
 go install github.com/nurularifin27/schemagen/cmd/schemagen@latest
+```
+
+Check the installed version:
+
+```bash
+schemagen --version
+schemagen -v
+schemagen version
 ```
 
 ## Quick Start
@@ -36,41 +52,102 @@ Initialize config:
 schemagen init
 ```
 
-Generate entities from that config:
+That writes:
+
+```text
+schemagen.yaml
+schemagen.relations/default.yaml
+```
+
+Generate entities:
 
 ```bash
 schemagen generate --config schemagen.yaml
 ```
 
-Root command stays backward compatible, so this also works:
+The root command stays backward-compatible, so this also works:
 
 ```bash
 schemagen --config schemagen.yaml
 ```
 
-## Run Without Install
+## Default Project Layout
 
-```bash
-go run ./cmd/schemagen init
-go run ./cmd/schemagen generate --config schemagen.yaml
-go run ./cmd/schemagen generate --config schemagen.yaml --renderer gorm
-go run ./cmd/schemagen generate --config schemagen.yaml --relations-config schemagen.relations
+```text
+.
+├── schemagen.yaml
+├── schemagen.relations/
+│   └── default.yaml
+└── internal/
+    └── entity/
 ```
 
-## Build
+For larger schemas, split relations by domain:
 
-```bash
-go build ./cmd/schemagen
+```text
+schemagen.relations/
+  auth.yaml
+  org.yaml
+  catalog.yaml
+  inventory.yaml
+  sales.yaml
+  menu.yaml
 ```
 
-## Completion
+## Choose a Renderer
 
-```bash
-schemagen completion zsh
-schemagen completion bash
-schemagen completion fish
-schemagen completion powershell
-```
+### `plain`
+
+Use this when you want:
+
+- clean structs with minimal DB coupling
+- domain model generation
+- manual query / repository mapping outside the generated layer
+
+### `sqlx`
+
+Use this when you want:
+
+- `db:"..."` tags
+- `database/sql` or `sqlx`
+- raw SQL with safer field references and consistent entity structs
+
+This is the most practical renderer today for query-heavy backends.
+
+### `gorm`
+
+Use this when you want:
+
+- GORM-ready structs
+- `TableName()` generation
+- GORM relation fields
+- `deleted_at` mapped to `gorm.DeletedAt`
+
+The GORM renderer is intentionally practical, not a full schema-to-tag mirror.
+
+## Core Features
+
+- renderer-based output: `plain`, `sqlx`, `gorm`
+- driver-specific type mapping for `postgres`, `mysql`, `mariadb`, and `sqlite`
+- configurable strategies for decimal, JSON, JSON tag casing, nullable handling
+- optional generated field references like `UserField.ID`
+- explicit `type_overrides` for custom DB and domain types
+- explicit relation config with grouped format
+- directory-based relations config for large schemas
+- safe regeneration with managed sections
+- conflict handling for unmanaged files
+- concise CLI logging with `--verbose` and `--quiet`
+
+## Documentation
+
+Start here:
+
+- [Cookbook](./docs/COOKBOOK.md)
+- [Configuration Guide](./docs/CONFIGURATION.md)
+- [Renderer Guide](./docs/RENDERERS.md)
+- [Relations Guide](./docs/RELATIONS.md)
+- [Workflow Guide](./docs/WORKFLOW.md)
+- [Data Type Reference](./DATATYPES.md)
 
 ## CLI Reference
 
@@ -85,8 +162,6 @@ Commands:
 `schemagen` behaves like `schemagen generate` and accepts the same generation flags.
 
 ### `schemagen generate`
-
-Flags:
 
 | Flag | Default | Values | Purpose |
 | --- | --- | --- | --- |
@@ -124,10 +199,6 @@ schemagen generate \
 
 schemagen generate \
   --config schemagen.yaml \
-  --tables users,orders,order_items
-
-schemagen generate \
-  --config schemagen.yaml \
   --renderer gorm \
   --decimal-strategy string \
   --json-strategy rawmessage \
@@ -135,39 +206,6 @@ schemagen generate \
   --generate-field-refs \
   --nullable-strategy pointer \
   --on-conflict backup
-
-schemagen generate \
-  --config schemagen.yaml \
-  --verbose
-
-schemagen generate \
-  --config schemagen.yaml \
-  --quiet
-
-schemagen --version
-schemagen -v
-schemagen version
-```
-
-CLI output behavior:
-
-- `INFO` lines go to normal command output
-- `WARN` lines go to error output
-- `ERROR` lines are returned by the command and printed once by the CLI entrypoint
-- default mode prints high-signal info plus warnings
-- `--verbose` prints per-table progress
-- `--quiet` suppresses informational output
-
-Example default output:
-
-```text
-INFO  generated=12 skipped=1 backed_up=0 overwritten=0 tables=13 renderer=sqlx out_dir=./internal/entity
-```
-
-Example warning output:
-
-```text
-WARN  skip unmanaged file for table users: ./internal/entity/user.go
 ```
 
 ### `schemagen init`
@@ -176,8 +214,6 @@ Behavior:
 
 - writes `schemagen.yaml`
 - writes `schemagen.relations/default.yaml`
-
-Flags:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -199,8 +235,6 @@ schemagen init --force
 
 ### `schemagen completion`
 
-Examples:
-
 ```bash
 schemagen completion zsh
 schemagen completion bash
@@ -208,15 +242,45 @@ schemagen completion fish
 schemagen completion powershell
 ```
 
-### `schemagen version`
+## Logging Behavior
 
-Examples:
+- `INFO` goes to normal output
+- `WARN` goes to error output
+- `ERROR` is returned once by the CLI
+- default mode prints summary plus warnings
+- `--verbose` prints per-table progress
+- `--quiet` suppresses informational output
 
-```bash
-schemagen --version
-schemagen -v
-schemagen version
+Example summary:
+
+```text
+INFO  generated=12 skipped=1 backed_up=0 overwritten=0 tables=13 renderer=sqlx out_dir=./internal/entity
 ```
+
+## Config Example
+
+Recommended baseline for many real projects:
+
+```yaml
+dsn: "postgres://user:password@localhost:5432/app?sslmode=disable"
+driver: postgres
+renderer: sqlx
+out_dir: ./internal/entity
+tables: []
+exclude:
+  - schema_migrations
+  - goose_db_version
+  - migrations
+on_conflict: skip
+decimal_strategy: string
+json_strategy: rawmessage
+json_case_strategy: snake
+generate_field_refs: true
+nullable_strategy: pointer
+type_overrides: []
+```
+
+See [Configuration Guide](./docs/CONFIGURATION.md) for full detail.
 
 ## Test
 
@@ -234,345 +298,3 @@ go test ./entitygen
 ```
 
 If a DSN is missing, the matching integration test is skipped.
-
-## Config
-
-`schemagen init` writes a real `schemagen.yaml`. There is no separate example file because the CLI reads `schemagen.yaml` by default.
-
-Default config:
-
-```yaml
-dsn: ""
-driver: postgres
-renderer: sqlx
-out_dir: ./internal/entity
-tables: []
-exclude:
-  - schema_migrations
-  - goose_db_version
-  - migrations
-on_conflict: skip
-decimal_strategy: float64
-json_strategy: bytes
-json_case_strategy: snake
-generate_field_refs: false
-nullable_strategy: pointer
-type_overrides: []
-```
-
-Conflict policies:
-
-- `skip`: leave unmanaged files untouched and warn
-- `error`: stop when an unmanaged file already exists
-- `backup`: move unmanaged file to `*.bak.<timestamp>` and write a new generated file
-- `overwrite`: replace unmanaged file directly
-
-Type mapping strategies:
-
-- `renderer`: `plain`, `sqlx`, or `gorm`
-- `decimal_strategy`: `float64` or `string`
-- `json_strategy`: `bytes` (`[]byte`) or `rawmessage` (`json.RawMessage`)
-- `json_case_strategy`: `snake` or `camel`
-- `generate_field_refs`: `true` or `false`
-- `nullable_strategy`: `pointer` or `sqlnull`
-- `type_overrides`: explicit overrides for driver gaps, custom DB types, or per-column mapping
-
-JSON tag behavior:
-
-- `snake`
-  - fields and relations both use `snake_case`
-- `camel`
-  - fields and relations both use `lowerCamel`
-
-Recommended:
-
-- `snake` if your JSON API follows typical REST payload naming
-- `camel` if your frontend/client contracts prefer JavaScript-style casing
-
-Field reference helpers:
-
-- when `generate_field_refs: true`, schemagen generates grouped DB column references per entity
-- example:
-
-```go
-var UserField = struct {
-	ID    string
-	Email string
-}{
-	ID:    "id",
-	Email: "email",
-}
-```
-
-- intended usage:
-
-```go
-cols := []string{
-	UserField.ID,
-	UserField.Email,
-}
-```
-
-- default is `false` to avoid adding extra generated API surface when not needed
-
-GORM soft delete behavior:
-
-- when `renderer: gorm` and a column is named `deleted_at`, schemagen generates `gorm.DeletedAt`
-- this is a built-in convention for GORM models
-- if you need a different type for a specific `deleted_at` column, use an explicit `table + column` override
-
-Renderer behavior:
-
-- `plain`: no struct tags
-- `sqlx`: `db` + `json` tags
-- `gorm`: `gorm` + `json` tags and `TableName()` method
-
-Renderer examples:
-
-`plain`
-
-```go
-type User struct {
-	ID        *int64
-	Email     string
-	CreatedAt *time.Time
-
-	Profile *Profile `json:"profile,omitempty"`
-}
-```
-
-`sqlx`
-
-```go
-type User struct {
-	ID        *int64     `db:"id" json:"id"`
-	Email     string     `db:"email" json:"email"`
-	CreatedAt *time.Time `db:"created_at" json:"created_at"`
-
-	Profile *Profile `json:"profile,omitempty"`
-}
-```
-
-`gorm`
-
-```go
-type User struct {
-	ID        *int64     `gorm:"column:id;primaryKey" json:"id"`
-	Email     string     `gorm:"column:email;not null" json:"email"`
-	CreatedAt *time.Time `gorm:"column:created_at" json:"created_at"`
-
-	Profile *Profile `gorm:"foreignKey:UserID;references:ID" json:"profile,omitempty"`
-}
-
-func (*User) TableName() string {
-	return TableNameUser
-}
-```
-
-Nullable behavior:
-
-- `pointer`: nullable scalars become `*T`
-- `sqlnull`: nullable scalars use `database/sql` null types when available
-
-Nullable strategy details:
-
-- `plain`
-  - `pointer`: best for domain models with minimal DB coupling
-  - `sqlnull`: only useful if you explicitly want DB null boundary types in plain structs
-- `sqlx`
-  - `pointer`: pragmatic default for API-facing or service-facing structs
-  - `sqlnull`: good when you want explicit scan semantics from `database/sql`
-- `gorm`
-  - `pointer`: recommended default
-  - `sqlnull`: supported for scalar nullable types, but generally less idiomatic than pointers in GORM models
-
-## Relations Config
-
-Use a separate relations config path to keep relation mapping out of the main config.
-
-Recommended default layout:
-
-```text
-schemagen.relations/
-  auth.yaml
-  org.yaml
-  catalog.yaml
-  inventory.yaml
-  sales.yaml
-  menu.yaml
-```
-
-By default, schemagen looks for:
-
-1. `schemagen.relations/`
-2. fallback legacy file `schemagen.relations.yaml`
-
-`--relations-config` can point to either a file or a directory. When a directory is used, schemagen merges every `*.yaml` and `*.yml` file in lexical order.
-
-Example:
-
-```yaml
-tables:
-  orders:
-    relations:
-      - kind: belongs_to
-        target_table: users
-        foreign_key: user_id
-        target_key: id
-
-  users:
-    relations:
-      - kind: has_many
-        field: Orders
-        target_table: orders
-        foreign_key: user_id
-        target_key: id
-
-      - kind: has_one
-        field: Profile
-        target_table: user_profiles
-        foreign_key: user_id
-        target_key: id
-
-      - kind: many_to_many
-        field: Roles
-        target_table: roles
-        join_table: user_roles
-        join_foreign_key: user_id
-        join_target_key: role_id
-        source_key: id
-        target_key: id
-```
-
-The grouped `tables.<table>.relations` format is the recommended form.
-
-For large schemas, prefer splitting grouped files by domain instead of keeping one giant relations file.
-
-Legacy flat format is still supported:
-
-```yaml
-relations:
-  - table: orders
-    kind: belongs_to
-    target_table: users
-    foreign_key: user_id
-    target_key: id
-```
-
-Supported kinds:
-
-- `belongs_to`
-- `has_one`
-- `has_many`
-- `many_to_many`
-
-`field` is optional. If it is omitted, schemagen derives a default:
-
-- `belongs_to`, `has_one` -> singular target struct name
-- `has_many`, `many_to_many` -> plural target struct name
-
-Examples:
-
-- `target_table: users` + `belongs_to` -> `User`
-- `target_table: order_items` + `has_many` -> `OrderItems`
-
-Generated relation field defaults:
-
-- `belongs_to`, `has_one` -> `*Target`
-- `has_many`, `many_to_many` -> `[]*Target`
-
-Renderer behavior for relation fields:
-
-- `plain` and `sqlx`: relation fields only get `json:",omitempty"`
-- `gorm`: relation fields get minimal `gorm` relation metadata plus `json:",omitempty"`
-
-Recommended relation patterns:
-
-```yaml
-tables:
-  users:
-    relations:
-      - kind: many_to_many
-        field: Roles
-        target_table: roles
-        join_table: user_roles
-        join_foreign_key: user_id
-        join_target_key: role_id
-        source_key: id
-        target_key: id
-```
-
-`many_to_many` is intended for pure join-table relations.
-
-If your join table has domain payload columns such as `status`, `assigned_at`, `notes`, or `metadata`, do not model it as `many_to_many`. Treat that join table as a normal entity and use explicit `has_many` / `belongs_to` relations instead.
-
-Relation examples by renderer:
-
-`plain` / `sqlx`
-
-```go
-type Order struct {
-	ID     *int64 `db:"id" json:"id"`
-	UserID int64  `db:"user_id" json:"user_id"`
-
-	User *User `json:"user,omitempty"`
-}
-```
-
-`gorm`
-
-```go
-type Order struct {
-	ID     *int64 `gorm:"column:id;primaryKey" json:"id"`
-	UserID int64  `gorm:"column:user_id;not null" json:"user_id"`
-
-	User *User `gorm:"foreignKey:UserID;references:ID" json:"user,omitempty"`
-}
-```
-
-Current relation model is explicit-config-first. Foreign key inference from database metadata is not implemented yet.
-
-Example overrides:
-
-```yaml
-type_overrides:
-  - db_type: uuid
-    go_type: uuid.UUID
-    imports:
-      - github.com/google/uuid
-  - table: users
-    column: payload
-    go_type: json.RawMessage
-    imports:
-      - encoding/json
-```
-
-## Type Compatibility
-
-Current support level by driver:
-
-| Area | Postgres | MySQL | MariaDB | SQLite |
-| --- | --- | --- | --- | --- |
-| Core integers / bool / text / time | Strong | Strong | Strong | Strong |
-| Unsigned integers | N/A | Strong | Strong | N/A |
-| `decimal` / `numeric` strategies | Strong | Strong | Strong | Strong |
-| `json` / `jsonb` strategies | Strong | Strong | Strong | Strong |
-| UUID default mapping | Strong | Fallback | Fallback | Fallback |
-| Basic array mapping | Partial | N/A | N/A | N/A |
-| Enum / domain / custom DB types | Override-driven | Override-driven | Override-driven | Override-driven |
-
-Interpretation:
-
-- `Strong`: explicit built-in mapping exists.
-- `Partial`: some common cases are built in, but not the full database type surface.
-- `Fallback`: use `type_overrides` if you need a precise Go type.
-
-For production schemas with domain-specific types, prefer `type_overrides` instead of depending on implicit fallback behavior.
-
-## Manual Code Policy
-
-Generated files are editable. `schemagen` only manages code inside its section markers.
-
-- Manual methods, getters, setters, and helpers outside markers are preserved
-- Manual relations below the managed base section are preserved
-- Manual imports are preserved and merged with generated imports
