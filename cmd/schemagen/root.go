@@ -100,6 +100,7 @@ func bindGenerateFlags(cmd *cobra.Command, cfg *Config) {
 	flags.StringVar(&cfg.DecimalStrategy, "decimal-strategy", "", "Decimal mapping strategy: float64, string")
 	flags.StringVar(&cfg.JSONStrategy, "json-strategy", "", "JSON mapping strategy: bytes, rawmessage")
 	flags.StringVar(&cfg.JSONCaseStrategy, "json-case-strategy", "", "JSON tag naming strategy: snake, camel")
+	flags.BoolVar(&cfg.GenerateFieldRefs, "generate-field-refs", false, "Generate grouped field reference helpers like UserField.ID")
 	flags.StringVar(&cfg.NullableStrategy, "nullable-strategy", "", "Nullable mapping strategy: pointer, sqlnull")
 }
 
@@ -119,19 +120,20 @@ func runGenerate(cmd *cobra.Command, cfg *Config, verbose, quiet bool) error {
 
 	logger := newLogger(cmd.OutOrStdout(), cmd.ErrOrStderr(), verbose, quiet)
 	result, err := entitygen.Generate(db, entitygen.Options{
-		Driver:           merged.Driver,
-		Renderer:         merged.Renderer,
-		OutDir:           merged.OutDir,
-		Tables:           merged.Tables,
-		ExcludeTables:    merged.Exclude,
-		OnConflict:       merged.OnConflict,
-		DecimalStrategy:  merged.DecimalStrategy,
-		JSONStrategy:     merged.JSONStrategy,
-		JSONCaseStrategy: merged.JSONCaseStrategy,
-		NullableStrategy: merged.NullableStrategy,
-		TypeOverrides:    toDBTypeOverrides(merged.TypeOverrides),
-		Relations:        toEntityRelations(relationsCfg),
-		Logger:           entitygen.Logger{Infof: logger.Infof, Verbosef: logger.Verbosef, Warnf: logger.Warnf},
+		Driver:            merged.Driver,
+		Renderer:          merged.Renderer,
+		OutDir:            merged.OutDir,
+		Tables:            merged.Tables,
+		ExcludeTables:     merged.Exclude,
+		OnConflict:        merged.OnConflict,
+		DecimalStrategy:   merged.DecimalStrategy,
+		JSONStrategy:      merged.JSONStrategy,
+		JSONCaseStrategy:  merged.JSONCaseStrategy,
+		GenerateFieldRefs: merged.GenerateFieldRefs,
+		NullableStrategy:  merged.NullableStrategy,
+		TypeOverrides:     toDBTypeOverrides(merged.TypeOverrides),
+		Relations:         toEntityRelations(relationsCfg),
+		Logger:            entitygen.Logger{Infof: logger.Infof, Verbosef: logger.Verbosef, Warnf: logger.Warnf},
 	})
 	if err != nil {
 		return err
@@ -284,6 +286,7 @@ func mergeConfig(base, override Config) Config {
 	if override.JSONCaseStrategy != "" {
 		cfg.JSONCaseStrategy = override.JSONCaseStrategy
 	}
+	cfg.GenerateFieldRefs = cfg.GenerateFieldRefs || override.GenerateFieldRefs
 	if override.NullableStrategy != "" {
 		cfg.NullableStrategy = override.NullableStrategy
 	}

@@ -35,6 +35,9 @@ json_strategy: rawmessage
 # JSON tag naming strategy: snake, camel
 json_case_strategy: snake
 
+# Generate grouped field references like UserField.ID
+generate_field_refs: false
+
 # Nullable mapping strategy: pointer, sqlnull
 nullable_strategy: pointer
 

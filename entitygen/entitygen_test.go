@@ -278,6 +278,30 @@ func TestGenerateCreatesManagedFile(t *testing.T) {
 	}
 }
 
+func TestGenerateMatchesGoldenFieldRefsSQLX(t *testing.T) {
+	db, err := openSQLiteDB(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE users (id integer primary key autoincrement, name text not null, created_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if _, err := Generate(db, Options{
+		Driver:            "sqlite",
+		Renderer:          RendererSQLX,
+		OutDir:            outDir,
+		Tables:            []string{"users"},
+		OnConflict:        "skip",
+		GenerateFieldRefs: true,
+	}); err != nil {
+		t.Fatalf("expected generate to succeed, got %v", err)
+	}
+
+	assertMatchesGolden(t, filepath.Join(outDir, "user.go"), "testdata/user_field_refs_sqlx.golden")
+}
+
 func TestGenerateUsesMetadataFieldName(t *testing.T) {
 	db, err := openSQLiteDB(t)
 	if err != nil {

@@ -14,18 +14,19 @@ import (
 )
 
 type Config struct {
-	DSN              string               `yaml:"dsn"`
-	Driver           string               `yaml:"driver"`
-	Renderer         string               `yaml:"renderer"`
-	OutDir           string               `yaml:"out_dir"`
-	Tables           []string             `yaml:"tables"`
-	Exclude          []string             `yaml:"exclude"`
-	OnConflict       string               `yaml:"on_conflict"`
-	DecimalStrategy  string               `yaml:"decimal_strategy"`
-	JSONStrategy     string               `yaml:"json_strategy"`
-	JSONCaseStrategy string               `yaml:"json_case_strategy"`
-	NullableStrategy string               `yaml:"nullable_strategy"`
-	TypeOverrides    []TypeOverrideConfig `yaml:"type_overrides"`
+	DSN               string               `yaml:"dsn"`
+	Driver            string               `yaml:"driver"`
+	Renderer          string               `yaml:"renderer"`
+	OutDir            string               `yaml:"out_dir"`
+	Tables            []string             `yaml:"tables"`
+	Exclude           []string             `yaml:"exclude"`
+	OnConflict        string               `yaml:"on_conflict"`
+	DecimalStrategy   string               `yaml:"decimal_strategy"`
+	JSONStrategy      string               `yaml:"json_strategy"`
+	JSONCaseStrategy  string               `yaml:"json_case_strategy"`
+	GenerateFieldRefs bool                 `yaml:"generate_field_refs"`
+	NullableStrategy  string               `yaml:"nullable_strategy"`
+	TypeOverrides     []TypeOverrideConfig `yaml:"type_overrides"`
 }
 
 type TypeOverrideConfig struct {
@@ -88,6 +89,9 @@ json_strategy: %s
 
 # JSON tag naming strategy: snake, camel
 json_case_strategy: %s
+
+# Generate grouped field references like UserField.ID
+generate_field_refs: false
 
 # Nullable mapping strategy: pointer, sqlnull
 nullable_strategy: %s

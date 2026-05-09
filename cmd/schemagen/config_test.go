@@ -56,6 +56,9 @@ func TestNormalizeConfigAppliesDefaults(t *testing.T) {
 	if cfg.JSONCaseStrategy != defaultJSONCaseStrategy {
 		t.Fatalf("expected json case strategy %q, got %q", defaultJSONCaseStrategy, cfg.JSONCaseStrategy)
 	}
+	if cfg.GenerateFieldRefs {
+		t.Fatal("expected generate field refs default false")
+	}
 	if cfg.NullableStrategy != defaultNullableStrategy {
 		t.Fatalf("expected nullable strategy %q, got %q", defaultNullableStrategy, cfg.NullableStrategy)
 	}
@@ -66,13 +69,14 @@ func TestNormalizeConfigAppliesDefaults(t *testing.T) {
 
 func TestNormalizeConfigNormalizesCase(t *testing.T) {
 	cfg := Config{
-		Driver:           "Postgres",
-		Renderer:         "GORM",
-		OnConflict:       "BACKUP",
-		DecimalStrategy:  "String",
-		JSONStrategy:     "RAWMESSAGE",
-		JSONCaseStrategy: "Camel",
-		NullableStrategy: "SQLNULL",
+		Driver:            "Postgres",
+		Renderer:          "GORM",
+		OnConflict:        "BACKUP",
+		DecimalStrategy:   "String",
+		JSONStrategy:      "RAWMESSAGE",
+		JSONCaseStrategy:  "Camel",
+		GenerateFieldRefs: true,
+		NullableStrategy:  "SQLNULL",
 	}
 	normalizeConfig(&cfg)
 
@@ -94,6 +98,9 @@ func TestNormalizeConfigNormalizesCase(t *testing.T) {
 	if cfg.JSONCaseStrategy != "camel" {
 		t.Fatalf("expected normalized json case strategy, got %q", cfg.JSONCaseStrategy)
 	}
+	if !cfg.GenerateFieldRefs {
+		t.Fatal("expected generate field refs to remain true")
+	}
 	if cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("expected normalized nullable strategy, got %q", cfg.NullableStrategy)
 	}
@@ -101,31 +108,33 @@ func TestNormalizeConfigNormalizesCase(t *testing.T) {
 
 func TestMergeConfigPrefersOverride(t *testing.T) {
 	base := Config{
-		DSN:              "dsn-base",
-		Driver:           "postgres",
-		Renderer:         "sqlx",
-		OutDir:           "./base",
-		Tables:           []string{"users"},
-		Exclude:          []string{"migrations"},
-		OnConflict:       "skip",
-		DecimalStrategy:  "float64",
-		JSONStrategy:     "bytes",
-		JSONCaseStrategy: "snake",
-		NullableStrategy: "pointer",
+		DSN:               "dsn-base",
+		Driver:            "postgres",
+		Renderer:          "sqlx",
+		OutDir:            "./base",
+		Tables:            []string{"users"},
+		Exclude:           []string{"migrations"},
+		OnConflict:        "skip",
+		DecimalStrategy:   "float64",
+		JSONStrategy:      "bytes",
+		JSONCaseStrategy:  "snake",
+		GenerateFieldRefs: false,
+		NullableStrategy:  "pointer",
 	}
 	override := Config{
-		DSN:              "dsn-override",
-		Renderer:         "gorm",
-		OutDir:           "./override",
-		Tables:           []string{"companies"},
-		OnConflict:       "backup",
-		DecimalStrategy:  "string",
-		JSONCaseStrategy: "snake",
-		NullableStrategy: "sqlnull",
+		DSN:               "dsn-override",
+		Renderer:          "gorm",
+		OutDir:            "./override",
+		Tables:            []string{"companies"},
+		OnConflict:        "backup",
+		DecimalStrategy:   "string",
+		JSONCaseStrategy:  "snake",
+		GenerateFieldRefs: true,
+		NullableStrategy:  "sqlnull",
 	}
 
 	cfg := mergeConfig(base, override)
-	if cfg.DSN != "dsn-override" || cfg.OutDir != "./override" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "bytes" || cfg.JSONCaseStrategy != "snake" || cfg.NullableStrategy != "sqlnull" {
+	if cfg.DSN != "dsn-override" || cfg.OutDir != "./override" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "bytes" || cfg.JSONCaseStrategy != "snake" || !cfg.GenerateFieldRefs || cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("unexpected merged config: %#v", cfg)
 	}
 	if !reflect.DeepEqual(cfg.Tables, []string{"companies"}) {
@@ -167,6 +176,7 @@ func sampleConfigYAML() string {
 		"decimal_strategy: string\n" +
 		"json_strategy: rawmessage\n" +
 		"json_case_strategy: camel\n" +
+		"generate_field_refs: true\n" +
 		"nullable_strategy: sqlnull\n" +
 		"type_overrides:\n  - db_type: uuid\n    go_type: github.com/google/uuid.UUID\n    imports:\n      - github.com/google/uuid\n"
 }
@@ -176,7 +186,7 @@ func assertSampleConfig(t *testing.T, cfg Config) {
 	if cfg.DSN != "postgres://x" || cfg.Driver != "postgres" || cfg.Renderer != "gorm" || cfg.OutDir != "./entity" {
 		t.Fatalf("unexpected base config: %#v", cfg)
 	}
-	if cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.JSONCaseStrategy != "camel" || cfg.NullableStrategy != "sqlnull" {
+	if cfg.OnConflict != "backup" || cfg.DecimalStrategy != "string" || cfg.JSONStrategy != "rawmessage" || cfg.JSONCaseStrategy != "camel" || !cfg.GenerateFieldRefs || cfg.NullableStrategy != "sqlnull" {
 		t.Fatalf("unexpected strategy config: %#v", cfg)
 	}
 	if len(cfg.TypeOverrides) != 1 || cfg.TypeOverrides[0].GoType != "github.com/google/uuid.UUID" {
@@ -244,6 +254,7 @@ func TestDefaultConfigTemplateIncludesDefaults(t *testing.T) {
 		"decimal_strategy: float64",
 		"json_strategy: bytes",
 		"json_case_strategy: snake",
+		"generate_field_refs: false",
 		"nullable_strategy: pointer",
 		"type_overrides: []",
 		"schema_migrations",

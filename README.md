@@ -102,6 +102,7 @@ Flags:
 | `--decimal-strategy` | from config | `float64`, `string` | Decimal mapping strategy |
 | `--json-strategy` | from config | `bytes`, `rawmessage` | JSON mapping strategy |
 | `--json-case-strategy` | from config | `snake`, `camel` | JSON tag naming strategy |
+| `--generate-field-refs` | from config | bool | Generate grouped field references like `UserField.ID` |
 | `--nullable-strategy` | from config | `pointer`, `sqlnull` | Nullable scalar mapping strategy |
 | `--verbose` | `false` | bool | Print per-table generation details |
 | `--quiet` | `false` | bool | Suppress informational output |
@@ -131,6 +132,7 @@ schemagen generate \
   --decimal-strategy string \
   --json-strategy rawmessage \
   --json-case-strategy snake \
+  --generate-field-refs \
   --nullable-strategy pointer \
   --on-conflict backup
 
@@ -253,6 +255,7 @@ on_conflict: skip
 decimal_strategy: float64
 json_strategy: bytes
 json_case_strategy: snake
+generate_field_refs: false
 nullable_strategy: pointer
 type_overrides: []
 ```
@@ -270,6 +273,7 @@ Type mapping strategies:
 - `decimal_strategy`: `float64` or `string`
 - `json_strategy`: `bytes` (`[]byte`) or `rawmessage` (`json.RawMessage`)
 - `json_case_strategy`: `snake` or `camel`
+- `generate_field_refs`: `true` or `false`
 - `nullable_strategy`: `pointer` or `sqlnull`
 - `type_overrides`: explicit overrides for driver gaps, custom DB types, or per-column mapping
 
@@ -284,6 +288,32 @@ Recommended:
 
 - `snake` if your JSON API follows typical REST payload naming
 - `camel` if your frontend/client contracts prefer JavaScript-style casing
+
+Field reference helpers:
+
+- when `generate_field_refs: true`, schemagen generates grouped DB column references per entity
+- example:
+
+```go
+var UserField = struct {
+	ID    string
+	Email string
+}{
+	ID:    "id",
+	Email: "email",
+}
+```
+
+- intended usage:
+
+```go
+cols := []string{
+	UserField.ID,
+	UserField.Email,
+}
+```
+
+- default is `false` to avoid adding extra generated API surface when not needed
 
 GORM soft delete behavior:
 

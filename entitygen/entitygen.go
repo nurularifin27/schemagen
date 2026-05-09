@@ -18,19 +18,20 @@ import (
 )
 
 type Options struct {
-	OutDir           string
-	Driver           string
-	Renderer         string
-	Tables           []string
-	ExcludeTables    []string
-	OnConflict       string
-	DecimalStrategy  string
-	JSONStrategy     string
-	JSONCaseStrategy string
-	NullableStrategy string
-	TypeOverrides    []dbtype.Override
-	Relations        []Relation
-	Logger           Logger
+	OutDir            string
+	Driver            string
+	Renderer          string
+	Tables            []string
+	ExcludeTables     []string
+	OnConflict        string
+	DecimalStrategy   string
+	JSONStrategy      string
+	JSONCaseStrategy  string
+	GenerateFieldRefs bool
+	NullableStrategy  string
+	TypeOverrides     []dbtype.Override
+	Relations         []Relation
+	Logger            Logger
 }
 
 type GeneratedField struct {
@@ -60,6 +61,12 @@ type GeneratedRelation struct {
 	GoType  string
 	JSONTag string
 	GORMTag string
+}
+
+type GeneratedFieldRef struct {
+	StructName string
+	FieldName  string
+	ColumnName string
 }
 
 type Logger struct {
@@ -180,6 +187,7 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	structName := db.NamingStrategy.SchemaName(tableName)
 	fields, imports := buildFields(tableName, columnTypes, mapper, renderer.name, opts.JSONCaseStrategy, opts.TypeOverrides)
 	fieldBlock := renderer.renderFieldBlock(fields)
+	fieldRefsBlock := renderFieldRefsBlock(structName, fields, opts.GenerateFieldRefs)
 	relations := buildRelations(tableName, opts.Relations, opts.JSONCaseStrategy)
 	relationBlock := renderer.renderRelationBlock(relations)
 	for _, rel := range relations {
@@ -194,7 +202,7 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	filePath := filepath.Join(opts.OutDir, fileName)
 
 	tableNameContent := renderer.renderTableSection(structName, tableName)
-	rendered := renderEntityFile(importBlock, tableNameContent, structName, fieldBlock, relationBlock)
+	rendered := renderEntityFile(importBlock, tableNameContent, structName, fieldRefsBlock, fieldBlock, relationBlock)
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		if err := writeFormatted(filePath, rendered); err != nil {
@@ -231,6 +239,23 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 		"// [SECTION: TABLE_NAME: START] - DO NOT REMOVE\n"+tableNameContent+"\n\n// [SECTION: TABLE_NAME: END] - DO NOT REMOVE",
 	)
 
+	fieldsSection := ""
+	if fieldRefsBlock != "" {
+		fieldsSection = "// [SECTION: FIELDS: START] - DO NOT REMOVE\n" + fieldRefsBlock + "\n\n// [SECTION: FIELDS: END] - DO NOT REMOVE"
+	}
+	if strings.Contains(content, "// [SECTION: FIELDS: START] - DO NOT REMOVE") {
+		content = replaceSection(content,
+			`// \[SECTION: FIELDS: START\].*?// \[SECTION: FIELDS: END\] - DO NOT REMOVE`,
+			fieldsSection,
+		)
+	} else if fieldsSection != "" {
+		content = strings.Replace(content,
+			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE",
+			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE\n\n"+fieldsSection,
+			1,
+		)
+	}
+
 	content = replaceSection(content,
 		`// \[SECTION: BASE: START\].*?// \[SECTION: BASE: END\] - DO NOT REMOVE`,
 		"// [SECTION: BASE: START] - DO NOT REMOVE\n"+fieldBlock+"\n\t// [SECTION: BASE: END] - DO NOT REMOVE",
@@ -264,12 +289,19 @@ func syncEntityFile(db *gorm.DB, mapper dbtype.Mapper, renderer fileRenderer, ta
 	return "generated", nil
 }
 
-func renderEntityFile(importBlock, tableNameContent, structName, fieldBlock, relationBlock string) string {
+func renderEntityFile(importBlock, tableNameContent, structName, fieldRefsBlock, fieldBlock, relationBlock string) string {
 	relationsSection := "\t// [SECTION: RELATIONS: START] - DO NOT REMOVE\n"
 	if relationBlock != "" {
 		relationsSection += relationBlock + "\n"
 	}
 	relationsSection += "\t// [SECTION: RELATIONS: END] - DO NOT REMOVE\n"
+
+	fieldsSection := ""
+	if fieldRefsBlock != "" {
+		fieldsSection = "// [SECTION: FIELDS: START] - DO NOT REMOVE\n" +
+			fieldRefsBlock + "\n\n" +
+			"// [SECTION: FIELDS: END] - DO NOT REMOVE\n\n"
+	}
 
 	return fmt.Sprintf(
 		generatedHeader+
@@ -277,13 +309,14 @@ func renderEntityFile(importBlock, tableNameContent, structName, fieldBlock, rel
 			"// [SECTION: TABLE_NAME: START] - DO NOT REMOVE\n"+
 			"%s\n\n"+
 			"// [SECTION: TABLE_NAME: END] - DO NOT REMOVE\n\n"+
+			"%s"+
 			"type %s struct {\n"+
 			"\t// [SECTION: BASE: START] - DO NOT REMOVE\n"+
 			"%s\n"+
 			"\t// [SECTION: BASE: END] - DO NOT REMOVE\n"+
 			"\n%s"+
 			"}\n",
-		importBlock, tableNameContent, structName, fieldBlock, relationsSection,
+		importBlock, tableNameContent, fieldsSection, structName, fieldBlock, relationsSection,
 	)
 }
 
@@ -384,6 +417,27 @@ func renderImportBlock(imports []string) string {
 		return ""
 	}
 	return "import (\n\t" + strings.Join(imports, "\n\t") + "\n)"
+}
+
+func renderFieldRefsBlock(structName string, fields []GeneratedField, enabled bool) string {
+	if !enabled || len(fields) == 0 {
+		return ""
+	}
+
+	refName := structName + "Field"
+	typeLines := make([]string, 0, len(fields))
+	valueLines := make([]string, 0, len(fields))
+	for _, field := range fields {
+		typeLines = append(typeLines, fmt.Sprintf("\t%s string", field.Name))
+		valueLines = append(valueLines, fmt.Sprintf("\t%s: %q,", field.Name, field.ColumnName))
+	}
+
+	return fmt.Sprintf(
+		"var %s = struct {\n%s\n}{\n%s\n}",
+		refName,
+		strings.Join(typeLines, "\n"),
+		strings.Join(valueLines, "\n"),
+	)
 }
 
 func replaceSection(src, pattern, replacement string) string {
