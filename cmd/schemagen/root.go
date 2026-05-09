@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/nurularifin27/schemagen/dbtype"
@@ -89,7 +90,7 @@ func newGenerateCmd() *cobra.Command {
 func bindGenerateFlags(cmd *cobra.Command, cfg *Config) {
 	flags := cmd.Flags()
 	flags.String("config", defaultConfig, "Path to YAML config")
-	flags.String("relations-config", defaultRelationsConfig, "Path to relations YAML config")
+	flags.String("relations-config", defaultRelationsConfig, "Path to relations YAML config file or directory")
 	flags.StringVar(&cfg.DSN, "dsn", "", "Database DSN")
 	flags.StringVar(&cfg.Driver, "driver", "", "Database driver: postgres, mysql, mariadb, sqlite")
 	flags.StringVar(&cfg.Renderer, "renderer", "", "Output renderer: plain, sqlx, gorm")
@@ -228,10 +229,7 @@ func newInitCmd() *cobra.Command {
 			if strings.TrimSpace(outPath) == "" {
 				outPath = defaultConfig
 			}
-			outRelationsPath := relationsPath
-			if strings.TrimSpace(outRelationsPath) == "" {
-				outRelationsPath = defaultRelationsConfig
-			}
+			outRelationsPath := defaultRelationsOutputPath(relationsPath)
 
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\nwrote %s\n", outPath, outRelationsPath)
 			if err != nil {
@@ -242,16 +240,28 @@ func newInitCmd() *cobra.Command {
 		Example: strings.TrimSpace(`
   schemagen init
   schemagen init --path config/schemagen.yaml
-  schemagen init --relations-path config/schemagen.relations.yaml
+  schemagen init --relations-path config/schemagen.relations
   schemagen init --force
 		`),
 	}
 
 	cmd.Flags().StringVar(&path, "path", defaultConfig, "Path to generated YAML config")
-	cmd.Flags().StringVar(&relationsPath, "relations-path", defaultRelationsConfig, "Path to generated relations YAML config")
+	cmd.Flags().StringVar(&relationsPath, "relations-path", defaultRelationsConfig, "Path to generated relations YAML config file or directory")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite config file if it already exists")
 
 	return cmd
+}
+
+func defaultRelationsOutputPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = defaultRelationsConfig
+	}
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+		return path
+	}
+	return filepath.Join(path, defaultRelationsConfigFile)
 }
 
 func mergeConfig(base, override Config) Config {

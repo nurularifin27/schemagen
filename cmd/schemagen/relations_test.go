@@ -39,6 +39,57 @@ func TestLoadRelationsIfExistsReadsLegacyFlatYAML(t *testing.T) {
 	}
 }
 
+func TestLoadRelationsIfExistsReadsDirectoryYAML(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "schemagen.relations")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	first := []byte("tables:\n  orders:\n    relations:\n      - kind: belongs_to\n        target_table: users\n        foreign_key: user_id\n        target_key: id\n")
+	second := []byte("tables:\n  users:\n    relations:\n      - kind: has_many\n        target_table: orders\n        foreign_key: user_id\n        target_key: id\n")
+	if err := os.WriteFile(filepath.Join(dir, "orders.yaml"), first, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "users.yaml"), second, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadRelationsIfExists(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Relations) != 2 {
+		t.Fatalf("expected 2 merged relations, got %#v", cfg.Relations)
+	}
+}
+
+func TestLoadRelationsIfExistsDefaultFallsBackToLegacyFile(t *testing.T) {
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	content := []byte("tables:\n  orders:\n    relations:\n      - kind: belongs_to\n        target_table: users\n        foreign_key: user_id\n        target_key: id\n")
+	if err := os.WriteFile(legacyRelationsConfig, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadRelationsIfExists(defaultRelationsConfig)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Relations) != 1 || cfg.Relations[0].Table != "orders" {
+		t.Fatalf("unexpected fallback config: %#v", cfg)
+	}
+}
+
 func TestValidateRelationsConfig(t *testing.T) {
 	cfg := RelationsConfig{
 		Relations: []RelationConfig{{
@@ -63,6 +114,32 @@ func TestValidateRelationsConfig(t *testing.T) {
 	}
 	if err := validateRelationsConfig(bad); err == nil {
 		t.Fatal("expected invalid many_to_many config to fail")
+	}
+}
+
+func TestValidateRelationsConfigRejectsDuplicateRelations(t *testing.T) {
+	cfg := RelationsConfig{
+		Relations: []RelationConfig{
+			{
+				Table:       "orders",
+				Kind:        "belongs_to",
+				Field:       "User",
+				TargetTable: "users",
+				ForeignKey:  "user_id",
+				TargetKey:   "id",
+			},
+			{
+				Table:       "orders",
+				Kind:        "belongs_to",
+				Field:       "User",
+				TargetTable: "users",
+				ForeignKey:  "user_id",
+				TargetKey:   "id",
+			},
+		},
+	}
+	if err := validateRelationsConfig(cfg); err == nil || !strings.Contains(err.Error(), "duplicate relation definition") {
+		t.Fatalf("expected duplicate relation error, got %v", err)
 	}
 }
 
@@ -109,12 +186,12 @@ func TestNormalizeRelationsConfigFillsDefaultField(t *testing.T) {
 }
 
 func TestWriteDefaultRelationsConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "schemagen.relations.yaml")
+	path := filepath.Join(t.TempDir(), "schemagen.relations")
 	if err := writeDefaultRelationsConfig(path, false); err != nil {
 		t.Fatalf("write default relations config: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(path, defaultRelationsConfigFile))
 	if err != nil {
 		t.Fatalf("read relations config: %v", err)
 	}
@@ -124,8 +201,11 @@ func TestWriteDefaultRelationsConfig(t *testing.T) {
 }
 
 func TestWriteDefaultRelationsConfigRejectsExistingWithoutForce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "schemagen.relations.yaml")
-	if err := os.WriteFile(path, []byte("relations: []\n"), 0o644); err != nil {
+	path := filepath.Join(t.TempDir(), "schemagen.relations")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, defaultRelationsConfigFile), []byte("relations: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

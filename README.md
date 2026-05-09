@@ -54,7 +54,7 @@ schemagen --config schemagen.yaml
 go run ./cmd/schemagen init
 go run ./cmd/schemagen generate --config schemagen.yaml
 go run ./cmd/schemagen generate --config schemagen.yaml --renderer gorm
-go run ./cmd/schemagen generate --config schemagen.yaml --relations-config schemagen.relations.yaml
+go run ./cmd/schemagen generate --config schemagen.yaml --relations-config schemagen.relations
 ```
 
 ## Build
@@ -91,7 +91,7 @@ Flags:
 | Flag | Default | Values | Purpose |
 | --- | --- | --- | --- |
 | `--config` | `schemagen.yaml` | path | Main config file |
-| `--relations-config` | `schemagen.relations.yaml` | path | Relations config file |
+| `--relations-config` | `schemagen.relations` | path | Relations config file or directory |
 | `--dsn` | none | DSN string | Database connection string |
 | `--driver` | from config | `postgres`, `mysql`, `mariadb`, `sqlite` | Database driver |
 | `--renderer` | from config | `plain`, `sqlx`, `gorm` | Output renderer |
@@ -114,7 +114,7 @@ schemagen generate --config schemagen.yaml
 
 schemagen generate \
   --config schemagen.yaml \
-  --relations-config schemagen.relations.yaml
+  --relations-config schemagen.relations
 
 schemagen generate \
   --dsn "postgres://user:pass@localhost:5432/app?sslmode=disable" \
@@ -175,14 +175,14 @@ WARN  skip unmanaged file for table users: ./internal/entity/user.go
 Behavior:
 
 - writes `schemagen.yaml`
-- writes `schemagen.relations.yaml`
+- writes `schemagen.relations/default.yaml`
 
 Flags:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--path` | `schemagen.yaml` | Main config output path |
-| `--relations-path` | `schemagen.relations.yaml` | Relations config output path |
+| `--relations-path` | `schemagen.relations` | Relations config output file or directory path |
 | `--force` | `false` | Overwrite existing config files |
 
 Examples:
@@ -192,7 +192,7 @@ schemagen init
 
 schemagen init \
   --path config/schemagen.yaml \
-  --relations-path config/schemagen.relations.yaml
+  --relations-path config/schemagen.relations
 
 schemagen init --force
 ```
@@ -388,7 +388,26 @@ Nullable strategy details:
 
 ## Relations Config
 
-Use a separate `schemagen.relations.yaml` file to keep relation mapping out of the main config.
+Use a separate relations config path to keep relation mapping out of the main config.
+
+Recommended default layout:
+
+```text
+schemagen.relations/
+  auth.yaml
+  org.yaml
+  catalog.yaml
+  inventory.yaml
+  sales.yaml
+  menu.yaml
+```
+
+By default, schemagen looks for:
+
+1. `schemagen.relations/`
+2. fallback legacy file `schemagen.relations.yaml`
+
+`--relations-config` can point to either a file or a directory. When a directory is used, schemagen merges every `*.yaml` and `*.yml` file in lexical order.
 
 Example:
 
@@ -426,6 +445,8 @@ tables:
 ```
 
 The grouped `tables.<table>.relations` format is the recommended form.
+
+For large schemas, prefer splitting grouped files by domain instead of keeping one giant relations file.
 
 Legacy flat format is still supported:
 

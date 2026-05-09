@@ -187,7 +187,7 @@ func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	cmd.SetErr(buf)
 
 	path := filepath.Join(t.TempDir(), "schemagen.yaml")
-	relationsPath := filepath.Join(filepath.Dir(path), "schemagen.relations.yaml")
+	relationsPath := filepath.Join(filepath.Dir(path), "schemagen.relations")
 	cmd.SetArgs([]string{"init", "--path", path, "--relations-path", relationsPath})
 
 	if err := cmd.Execute(); err != nil {
@@ -201,7 +201,7 @@ func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	if string(data) != defaultConfigTemplate() {
 		t.Fatalf("unexpected config content:\n%s", string(data))
 	}
-	relationsData, err := os.ReadFile(relationsPath)
+	relationsData, err := os.ReadFile(filepath.Join(relationsPath, defaultRelationsConfigFile))
 	if err != nil {
 		t.Fatalf("expected relations config file to exist: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestInitCommandWritesDefaultConfig(t *testing.T) {
 	if !strings.Contains(buf.String(), "wrote "+path) {
 		t.Fatalf("expected output to mention path, got %q", buf.String())
 	}
-	if !strings.Contains(buf.String(), "wrote "+relationsPath) {
+	if !strings.Contains(buf.String(), "wrote "+filepath.Join(relationsPath, defaultRelationsConfigFile)) {
 		t.Fatalf("expected output to mention relations path, got %q", buf.String())
 	}
 }

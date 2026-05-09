@@ -1,12 +1,20 @@
 # Explicit relation mapping. Leave empty if you do not want generated relation fields.
 tables: {}
 
-# Recommended grouped format:
+# Recommended grouped format. Split files by domain if your schema is large:
+# schemagen.relations/
+#   auth.yaml
+#   org.yaml
+#   catalog.yaml
+#   inventory.yaml
+#   sales.yaml
+#   menu.yaml
+#
+# Example file content:
 # tables:
 #   orders:
 #     relations:
 #       - kind: belongs_to
-#         field: User
 #         target_table: users
 #         foreign_key: user_id
 #         target_key: id
@@ -14,19 +22,16 @@ tables: {}
 #   users:
 #     relations:
 #       - kind: has_many
-#         field: Orders
 #         target_table: orders
 #         foreign_key: user_id
 #         target_key: id
 #
 #       - kind: has_one
-#         field: Profile
 #         target_table: user_profiles
 #         foreign_key: user_id
 #         target_key: id
 #
 #       - kind: many_to_many
-#         field: Roles
 #         target_table: roles
 #         join_table: user_roles
 #         join_foreign_key: user_id

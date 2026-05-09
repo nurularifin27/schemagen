@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/nurularifin27/schemagen/entitygen"
@@ -11,7 +12,11 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-const defaultRelationsConfig = "schemagen.relations.yaml"
+const (
+	defaultRelationsConfig     = "schemagen.relations"
+	legacyRelationsConfig      = "schemagen.relations.yaml"
+	defaultRelationsConfigFile = "default.yaml"
+)
 
 type RelationsConfig struct {
 	Relations []RelationConfig                `yaml:"relations"`
@@ -36,20 +41,86 @@ type RelationConfig struct {
 }
 
 func loadRelationsIfExists(path string) (RelationsConfig, error) {
-	data, err := os.ReadFile(path)
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = defaultRelationsConfig
+	}
+	if path == defaultRelationsConfig {
+		return loadDefaultRelationsIfExists()
+	}
+
+	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return RelationsConfig{}, nil
 		}
 		return RelationsConfig{}, fmt.Errorf("failed to read relations config %q: %w", path, err)
 	}
+	if info.IsDir() {
+		return loadRelationsDir(path)
+	}
+	return loadRelationsFile(path)
+}
 
+func loadDefaultRelationsIfExists() (RelationsConfig, error) {
+	if info, err := os.Stat(defaultRelationsConfig); err == nil {
+		if info.IsDir() {
+			return loadRelationsDir(defaultRelationsConfig)
+		}
+		return loadRelationsFile(defaultRelationsConfig)
+	} else if err != nil && !os.IsNotExist(err) {
+		return RelationsConfig{}, fmt.Errorf("failed to read relations config %q: %w", defaultRelationsConfig, err)
+	}
+
+	if info, err := os.Stat(legacyRelationsConfig); err == nil && !info.IsDir() {
+		return loadRelationsFile(legacyRelationsConfig)
+	} else if err != nil && !os.IsNotExist(err) {
+		return RelationsConfig{}, fmt.Errorf("failed to read legacy relations config %q: %w", legacyRelationsConfig, err)
+	}
+
+	return RelationsConfig{}, nil
+}
+
+func loadRelationsFile(path string) (RelationsConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RelationsConfig{}, fmt.Errorf("failed to read relations config %q: %w", path, err)
+	}
 	var cfg RelationsConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return RelationsConfig{}, fmt.Errorf("invalid YAML in %q: %w", path, err)
 	}
 	cfg.flattenGroupedRelations()
 	return cfg, nil
+}
+
+func loadRelationsDir(path string) (RelationsConfig, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return RelationsConfig{}, fmt.Errorf("failed to read relations config directory %q: %w", path, err)
+	}
+
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	merged := RelationsConfig{}
+	for _, name := range names {
+		cfg, err := loadRelationsFile(filepath.Join(path, name))
+		if err != nil {
+			return RelationsConfig{}, err
+		}
+		merged.Relations = append(merged.Relations, cfg.Relations...)
+	}
+	return merged, nil
 }
 
 func (cfg *RelationsConfig) flattenGroupedRelations() {
@@ -89,6 +160,7 @@ func normalizeRelationsConfig(cfg *RelationsConfig) {
 }
 
 func validateRelationsConfig(cfg RelationsConfig) error {
+	seen := make(map[string]struct{}, len(cfg.Relations))
 	for _, rel := range cfg.Relations {
 		if rel.Table == "" {
 			return fmt.Errorf("relations.table is required")
@@ -117,8 +189,29 @@ func validateRelationsConfig(cfg RelationsConfig) error {
 		default:
 			return fmt.Errorf("unsupported relation kind %q", rel.Kind)
 		}
+
+		key := relationSignature(rel)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate relation definition for table=%q kind=%q field=%q target_table=%q", rel.Table, rel.Kind, rel.Field, rel.TargetTable)
+		}
+		seen[key] = struct{}{}
 	}
 	return nil
+}
+
+func relationSignature(rel RelationConfig) string {
+	return strings.Join([]string{
+		rel.Table,
+		rel.Kind,
+		rel.Field,
+		rel.TargetTable,
+		rel.ForeignKey,
+		rel.TargetKey,
+		rel.JoinTable,
+		rel.JoinForeignKey,
+		rel.JoinTargetKey,
+		rel.SourceKey,
+	}, "|")
 }
 
 func defaultRelationField(kind, targetTable string) string {
@@ -176,7 +269,16 @@ func defaultRelationsTemplate() string {
 # Explicit relation mapping. Leave empty if you do not want generated relation fields.
 tables: {}
 
-# Recommended grouped format:
+# Recommended grouped format. Split files by domain if your schema is large:
+# schemagen.relations/
+#   auth.yaml
+#   org.yaml
+#   catalog.yaml
+#   inventory.yaml
+#   sales.yaml
+#   menu.yaml
+#
+# Example file content:
 # tables:
 #   orders:
 #     relations:
@@ -219,7 +321,14 @@ func writeDefaultRelationsConfig(path string, force bool) error {
 	if strings.TrimSpace(path) == "" {
 		path = defaultRelationsConfig
 	}
+	path = strings.TrimSpace(path)
+	if strings.HasSuffix(strings.ToLower(path), ".yaml") || strings.HasSuffix(strings.ToLower(path), ".yml") {
+		return writeDefaultRelationsFile(path, force)
+	}
+	return writeDefaultRelationsDir(path, force)
+}
 
+func writeDefaultRelationsFile(path string, force bool) error {
 	if !force {
 		if _, err := os.Stat(path); err == nil {
 			return fmt.Errorf("relations config %q already exists; rerun with --force to overwrite", path)
@@ -234,9 +343,31 @@ func writeDefaultRelationsConfig(path string, force bool) error {
 			return fmt.Errorf("create relations config directory %q: %w", dir, err)
 		}
 	}
-
 	if err := os.WriteFile(path, []byte(defaultRelationsTemplate()), 0o644); err != nil {
 		return fmt.Errorf("write relations config %q: %w", path, err)
+	}
+	return nil
+}
+
+func writeDefaultRelationsDir(path string, force bool) error {
+	target := filepath.Join(path, defaultRelationsConfigFile)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return fmt.Errorf("relations config path %q exists and is not a directory", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat relations config directory %q: %w", path, err)
+	}
+	if !force {
+		if _, err := os.Stat(target); err == nil {
+			return fmt.Errorf("relations config %q already exists; rerun with --force to overwrite", target)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat relations config %q: %w", target, err)
+		}
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("create relations config directory %q: %w", path, err)
+	}
+	if err := os.WriteFile(target, []byte(defaultRelationsTemplate()), 0o644); err != nil {
+		return fmt.Errorf("write relations config %q: %w", target, err)
 	}
 	return nil
 }
